@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.105
+// @version      0.106
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -2372,7 +2372,9 @@
   // Lee una hoja: [{ f, r, cls }] y el total de hojas ("Página 1 de 52"); null si no trae listado
   async function readList(url) {
     const html = await fetchHtml({ url, htmx: false });
-    const t = findTable(parseHtml(html));
+    const doc = parseHtml(html);
+    // findTable elige la tabla con más filas; si el filtro no trae ningún AVC (p. ej. nadie en Reconocimiento) no hay tabla con filas: se busca la del listado por su columna Estatus (0.106)
+    const t = findTable(doc) || [...doc.querySelectorAll('table')].find(x => !x.closest('#avcx-panel,#avcx-split') && statusIdxOf(x) >= 0);
     if (!t) return null;
     const idx = statusIdxOf(t);
     if (idx < 0) return null;
@@ -2559,14 +2561,22 @@
     ordSave();
     if (cambios && n) toast(cambios === 1 ? '1 AVC de las hojas siguientes cambió de estatus y se muestra arriba.' : `${cambios} AVC de las hojas siguientes cambiaron de estatus y se muestran arriba.`);
   }
+  const watchInfo = { corridas: 0, ultima: '', ultimo_error: '', no_corre: '' }; // solo para el diagnóstico (sin datos)
   async function watchTick() {
-    if (!WATCH_ON || !ORDER_ON || !splitView || !splitGroups.length || watchBusy || !onPage1()) return;
+    const why = !WATCH_ON ? 'WATCH_ON = false' : !ORDER_ON ? 'ORDER_ON = false' : !splitView ? 'sin "Separar por estatus"' : !splitGroups.length ? 'sin tablas por estatus' : watchBusy ? '' : !onPage1() ? 'no estás en la hoja 1' : '';
+    if (why) watchInfo.no_corre = why;
+    if (why || watchBusy) return;
+    watchInfo.no_corre = '';
     watchBusy = true;
     try {
       const spec = watchSpec();
       if (spec) await watchPend(spec);
       else await pollExtra();
+      watchInfo.corridas++;
+      watchInfo.ultima = fmtHora(Date.now());
+      watchInfo.ultimo_error = '';
     } catch (e) {
+      watchInfo.ultimo_error = fmtHora(Date.now()) + ' ' + clean(e.message).replace(/AVC\d{21}/g, 'AVC…').slice(0, 160);
       if (DEBUG) console.warn('[AVCx] vigilancia de pendientes:', e.message);
       if (watchBroken) { try { await pollExtra(); } catch (_) { /* ignore */ } }
     } finally {
@@ -2956,6 +2966,11 @@
         ultima_revision: pend.t ? fmtHora(pend.t) : 'ninguna',
         filas_de_otras_hojas: document.querySelectorAll('tr[data-avcx-extra]').length,
         horas_guardadas: Object.keys(ordRec).length,
+        revisiones_en_esta_carga: watchInfo.corridas,
+        ultima_revision_ok: watchInfo.ultima || 'ninguna',
+        ultimo_error: watchInfo.ultimo_error || 'ninguno',
+        no_corre_porque: watchInfo.no_corre || '—',
+        avisos_escritorio: notifyOn ? 'activados' : (notifySupported() ? 'desactivados' : 'el navegador no los permite'),
       };
     } catch (e) { info.vigilancia = { error: e.message }; }
     // Razón social (0.94): estado de la celda y de CLAA, solo booleanos y el motivo de CLAA (sin RFC ni nombres)
