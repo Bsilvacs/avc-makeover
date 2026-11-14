@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.100
+// @version      0.105
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -102,10 +102,29 @@
     { cls: 'warn', title: 'No presentado' },
   ];
   const SPLIT_OTHER_TITLE = 'Otros estatus';
-  // Orden por fecha y hora: las tablas de SPLIT_TABLES_ON listadas en SORT_TS_GROUPS (cls 'ok' = Cumplido, 'bad' = Reconocimiento Aduanero) se ordenan de la más reciente a la más
-  // antigua según la fecha y hora del cruce (momento_cruce) que entrega el servicio web ANAM; requiere el servicio web configurado. No presentado queda en el orden del portal (emisión).
-  const SORT_TS_ON = false;           // false = las filas quedan en el orden del portal. APAGADO en la 0.99 mientras se define de dónde sale la fecha del último estatus
-  const SORT_TS_GROUPS = ['ok', 'bad'];
+  // Orden por llegada: Reconocimiento Aduanero ('bad') y Cumplido ('ok') muestran arriba el AVC que llegó más recientemente (ver sortRecent). No presentado queda en el orden del portal (emisión).
+  const ORDER_ON = true;              // false = las tablas quedan en el orden del portal (por folio)
+  const ORDER_GROUPS = ['bad', 'ok']; // tablas que se ordenan (cls de SPLIT_GROUPS)
+  const ORDER_MAX_ENTRIES = 600;      // horas guardadas (las más recientes); lo demás se descarta
+  // Vigilancia de pendientes (0.104): el portal muestra 20 AVC por hoja, ordenados por folio, así que un AVC emitido hace días que hoy pasa a Reconocimiento o se
+  // desaduana ya no está en la hoja 1. Solo pueden cambiar los No presentados y los que están en Reconocimiento: cada WATCH_EVERY sondeos el script pide el
+  // listado filtrado por esos estatus (con los demás filtros que tengas aplicados; una o dos peticiones que cubren todas las hojas) y compara con la revisión
+  // anterior. El AVC que salió de esa lista cambió de estatus: se trae su fila (filtro por folio, una petición por AVC que cambió) y se muestra arriba de su tabla
+  // en la hoja 1. Reconocimiento Aduanero muestra todos los AVC en reconocimiento, de cualquier hoja; Cumplido, los que llegaron en las últimas WATCH_KEEP_HOURS horas.
+  // Si el formulario de filtros no se puede usar así (no es GET, no tiene campo Estatus o Folio, o el filtro no responde como se espera), se usa el respaldo de la
+  // 0.103: revisar las hojas 2..(1 + EXTRA_PAGES) del listado.
+  const WATCH_ON = true;              // false = sin vigilancia (ni respaldo): solo la hoja que tienes abierta
+  const WATCH_EVERY = 4;              // cada cuántos sondeos (4 x AUTO_REFRESH_SEC 15 s = cada minuto)
+  const WATCH_KEEP_HOURS = 24;        // Cumplido: AVC de otras hojas que se muestran en la hoja 1 si llegaron en estas últimas horas
+  const WATCH_MAX_PAGES = 5;          // hojas como máximo por cada estatus vigilado (20 AVC por hoja)
+  const WATCH_MAX_FETCH = 10;         // filas que se traen por folio en cada revisión como máximo (las demás, en la siguiente)
+  const EXTRA_PAGES = 2;              // respaldo: hojas extra que se revisan si la vigilancia no se puede usar
+  // Pestaña en segundo plano (0.104): el listado se sigue actualizando, más lento (cada HIDDEN_EVERY sondeos = cada minuto), para que la hora de cada cambio sea la real.
+  const HIDDEN_EVERY = 4;             // 0 = pausar con la pestaña oculta (como antes de la 0.104)
+  // Avisos de escritorio (0.105): notificación del sistema cuando un AVC entra a Reconocimiento Aduanero o queda Cumplido (solo cambios que el script VE con el
+  // portal abierto, aunque sea en otra pestaña). Se activan con la casilla "Avisos de escritorio" de la sección de filtros (el navegador pide permiso una vez).
+  // Son locales (API Notification del navegador): no se envía nada a ningún lado. El de Reconocimiento se queda en pantalla hasta que lo cierres.
+  const NOTIFY_ON = true;             // false = sin la casilla ni avisos
   const SPLIT_MAX_ROWS = 4;           // renglones visibles por tabla; si hay más, scroll vertical (0 = sin límite)
   // Casilla "Separar por estatus" (dentro de la sección de filtros, junto a "Ocultar AVC eliminados"): activa o desactiva la vista de tres tablas al momento;
   // desactivada, todos los AVC vuelven a una sola tabla, en su orden original. SPLIT_DEFAULT = cómo carga: true = activada (tres tablas), false = desactivada (una tabla).
@@ -889,13 +908,11 @@
       if (!inicio) inicio = inicioFrom(pj.documentos_aduanales);
     });
     const sorted = [...recs.values()].sort((a, b) => a.ped.localeCompare(b.ped, 'es', { numeric: true }) || a.cons - b.cons);
-    // ts (0.98): momento_cruce (fecha y hora del cruce / último estatus) y, si viene vacío, fecha_emision; se usa para ordenar las tablas Cumplido y Reconocimiento Aduanero
-    const ts = fechaTs(j.momento_cruce) || fechaTs(j.fecha_emision);
-    return { ped: uniq(sorted.map(r => r.ped)).join(', '), rfc: uniq([...sorted.flatMap(r => r.rfcs), ...extra]).join(', '), inicio, ts };
+    return { ped: uniq(sorted.map(r => r.ped)).join(', '), rfc: uniq([...sorted.flatMap(r => r.rfcs), ...extra]).join(', '), inicio, ts: fechaTs(j.momento_cruce) }; // ts (0.102): momento_cruce = fecha y hora del PRIMER estatus del AVC (ver sortRecent)
   }
 
   const wsMem = new Map();
-  const WSKEY = 'avcxws6:'; // prefijo nuevo (0.98: el resultado trae ts); antes avcxws5 (0.84): los resultados cacheados ahora salen ordenados por pedimento (0.40: incluyen el AVC de inicio de tránsito)
+  const WSKEY = 'avcxws6:'; // prefijo nuevo (0.102: el resultado trae ts); antes avcxws5 (0.84): los resultados cacheados ahora salen ordenados por pedimento (0.40: incluyen el AVC de inicio de tránsito)
   function loadWS(folio) {
     if (wsMem.has(folio)) return wsMem.get(folio);
     const p = (async () => {
@@ -936,7 +953,7 @@
     try {
       const d = await loadWS(folio);
       wsFailed.delete(folio);
-      if (d.ts) setRowTs(row, d.ts);
+      if (d.ts && row.dataset.avcxStatus && ORDER_GROUPS.includes(row.dataset.avcxStatus) && !ordKey(row, row.dataset.avcxStatus)) { ordSet(folio, d.ts, 'w', row.dataset.avcxStatus); scheduleSortTs(); }
       const tdPed = row.querySelector('td[data-avcx-col="ped"]');
       const tdRfc = row.querySelector('td[data-avcx-col="rfc"]');
       if (d.ped && tdPed) { tdPed.textContent = d.ped; tdPed.title = 'Fuente: servicio web ANAM'; }
@@ -1447,7 +1464,7 @@
     if (!FILTER_ACTIVE_ON || !el) return [];
     const out = [];
     el.querySelectorAll('input,select,textarea').forEach(f => {
-      if (f.closest('#avcx-deltoggle,#avcx-splittoggle')) return; // la casilla de este script no es un filtro del portal
+      if (f.closest('#avcx-deltoggle,#avcx-splittoggle,#avcx-notiftoggle')) return; // la casilla de este script no es un filtro del portal
       const t = (f.type || '').toLowerCase();
       if (/^(hidden|submit|button|reset|image|file|radio)$/.test(t)) return;
       let v = '';
@@ -1744,6 +1761,51 @@
     scheduleTS(t);
   }
 
+  // Avisos de escritorio (0.105, ver NOTIFY_ON)
+  const notifySupported = () => typeof Notification === 'function';
+  let notifyOn = NOTIFY_ON && notifySupported() && store.get('notif', '0') === '1' && Notification.permission === 'granted';
+  function notifyAvc(f, cls, st) {
+    if (!notifyOn || !f || !ORDER_GROUPS.includes(cls)) return;
+    try {
+      const n = new Notification(cls === 'bad' ? 'AVC en Reconocimiento Aduanero' : 'AVC cumplido', {
+        body: f + (st ? '\n' + clean(st).slice(0, 120) : ''),
+        tag: 'avcx-' + f,                  // el mismo AVC no se repite: el aviso nuevo reemplaza al anterior
+        requireInteraction: cls === 'bad', // el de reconocimiento se queda hasta que lo cierres
+      });
+      n.onclick = () => { try { window.focus(); n.close(); } catch (_) { /* ignore */ } };
+    } catch (_) { /* el navegador no permite avisos aquí */ }
+  }
+  const stText = row => { const c = row && row.querySelector && row.querySelector('.avcx-stcell'); return c ? c.textContent : ''; };
+  // Casilla "Avisos de escritorio": dentro de la sección de filtros, junto a las demás (sin atributo name: no se envía con el formulario)
+  function setupNotifyToggle(table) {
+    if (!NOTIFY_ON || !notifySupported() || document.getElementById('avcx-notiftoggle')) return;
+    const lab = mk('label');
+    lab.id = 'avcx-notiftoggle';
+    const cb = mk('input');
+    cb.type = 'checkbox';
+    cb.checked = notifyOn;
+    cb.addEventListener('change', async () => {
+      if (!cb.checked) { notifyOn = false; store.set('notif', '0'); return; }
+      let perm = Notification.permission;
+      try { if (perm !== 'granted') perm = await Notification.requestPermission(); } catch (_) { perm = 'denied'; }
+      if (perm !== 'granted') {
+        cb.checked = false;
+        toast('El navegador no dio permiso para los avisos. Puedes permitirlos en la configuración de este sitio (ícono a la izquierda de la dirección).');
+        return;
+      }
+      try { new Notification('Avisos de AVC activados', { body: 'Te avisaré cuando un AVC entre a Reconocimiento Aduanero o quede cumplido, mientras el portal esté abierto.', tag: 'avcx-test' }); }
+      catch (_) { cb.checked = false; toast('Este navegador no permite avisos de escritorio desde esta página.'); return; }
+      notifyOn = true;
+      store.set('notif', '1');
+    });
+    const sp = mk('span', null, 'Avisos de escritorio');
+    sp.title = 'Notificación del sistema cuando un AVC entra a Reconocimiento Aduanero o queda Cumplido. Solo con el portal abierto (aunque sea en otra pestaña). Es local: no se envía nada.';
+    lab.append(cb, sp);
+    const f = findFilter(table);
+    if (f) f.appendChild(lab);
+    else table.parentNode.insertBefore(lab, table);
+  }
+
   // Casilla "Separar por estatus": dentro de la sección de filtros, junto a la de eliminados (sin atributo name: no se envía con el formulario)
   function setupSplitToggle(table) {
     if (document.getElementById('avcx-splittoggle')) return;
@@ -1771,40 +1833,68 @@
     splitGroups.forEach(g => {
       const rs = move[g.cls];
       if (!rs) return;
-      if (splitPrepend) rs.slice().reverse().forEach(r => g.tbody.insertBefore(r, g.tbody.firstChild));
-      else rs.forEach(r => g.tbody.appendChild(r));
+      if (splitPrepend) {
+        rs.slice().reverse().forEach(r => g.tbody.insertBefore(r, g.tbody.firstChild));
+        // llegó el sondeo: los que entran a esta tabla y no estaban ya en ella se anotan con la hora de ahora
+        if (ORDER_GROUPS.includes(g.cls)) rs.forEach(r => { const f = rowFolio(r); if (f && ordPrev.get(f) !== g.cls) { ordSet(f, Date.now(), 'o', g.cls); if (ordPrev.has(f)) notifyAvc(f, g.cls, stText(r)); } });
+      } else rs.forEach(r => g.tbody.appendChild(r));
     });
   }
 
-  // Orden por fecha y hora (0.98): en las tablas Cumplido y Reconocimiento Aduanero (SORT_TS_GROUPS) las filas van de la más reciente a la más antigua según
-  // momento_cruce del servicio web (o fecha_emision si viene vacío). Sin servicio web configurado no hay fecha y el orden queda como el del portal. Las filas sin fecha (aún sin
-  // consultar o con falla) quedan al final, en su orden original. La fecha se pide al servicio web también para las filas que no están a la vista (misma consulta que ya
-  // se hace al verlas, con la caché de sesión: no se repite). Se acomoda en un solo cuadro (requestAnimationFrame), sin temporizadores. Solo es visual.
+  // Orden por llegada (0.102): Reconocimiento Aduanero y Cumplido (ORDER_GROUPS) van de la llegada más reciente a la más antigua. El portal no entrega la fecha del último estatus
+  // (el servicio web solo trae momento_cruce, la del PRIMER estatus; la celda Estatus del listado solo trae el nombre; el historial está en el detalle, que pide captcha), así que la hora de
+  // cada AVC en su tabla sale de dos fuentes, guardadas por folio en el gestor de userscripts (ordRec = folio -> [ms, fuente, tabla]):
+  //  1) 'o' = la hora en que el sondeo (AUTO_REFRESH_SEC) VIO llegar el AVC a esa tabla: la más cercana al momento real, pero solo con la página abierta;
+  //  2) 'w' = momento_cruce del servicio web, para lo que llegó con la página cerrada. Exacto en un AVC con un solo estatus (Desaduanamiento libre) y para entrar a Reconocimiento;
+  //     en un AVC que pasó por reconocimiento y ya terminó, es la hora en que EMPEZÓ la revisión (no la de Fin de revisión), así que puede quedar más abajo de lo debido.
+  // La hora 'o' manda sobre la 'w'. Cada AVC se pide al servicio web una sola vez (luego queda guardado), y no se pide si ya tiene hora para esa tabla. Sin servicio web solo hay horas 'o'.
+  // Las filas sin hora quedan al final, en el orden del portal. Se acomoda en un cuadro (requestAnimationFrame), sin temporizadores. Solo es visual.
+  let ordRec = {};
+  try { ordRec = JSON.parse(store.get('ordrec', '{}')) || {}; } catch (_) { ordRec = {}; }
+  const ordPrev = new Map(); // folio -> tabla en que estaba la fila que el sondeo reemplaza (para no anotar como llegada un cambio de otro dato)
+  const ordDirty = new Set();
   let sortRaf = 0;
-  function setRowTs(row, ts) {
-    if (!SORT_TS_ON || !ts) return;
-    if (row.dataset.avcxTs !== String(ts)) { row.dataset.avcxTs = String(ts); scheduleSortTs(); }
+  function ordSet(folio, ms, src, cls) {
+    if (!folio || !ms || !ORDER_ON) return;
+    const o = ordRec[folio];
+    if (o && o[2] === cls && o[1] === 'o' && src === 'w') return; // lo visto llegar manda sobre lo del servicio web
+    ordRec[folio] = [ms, src, cls];
+    ordDirty.add(folio);
   }
-  function prefetchTs(row) {
-    const folio = rowFolio(row);
-    if (!folio || !hasWS()) return;
-    row.dataset.avcxTsReq = '1'; // una sola vez por fila: si falla, la reintenta fill() cuando la fila se ve
-    loadWS(folio).then(d => { if (d && d.ts) setRowTs(row, d.ts); }).catch(() => { /* ya hay reintento por fila visible */ });
+  function ordSave() {
+    if (!ordDirty.size) return;
+    let cur = {};
+    try { cur = JSON.parse(store.get('ordrec', '{}')) || {}; } catch (_) { cur = {}; } // otra pestaña pudo anotar otros: se mezcla en vez de pisar
+    ordDirty.forEach(f => { cur[f] = ordRec[f]; });
+    ordDirty.clear();
+    const keys = Object.keys(cur);
+    if (keys.length > ORDER_MAX_ENTRIES) keys.sort((a, b) => cur[b][0] - cur[a][0]).slice(ORDER_MAX_ENTRIES).forEach(f => { delete cur[f]; });
+    ordRec = cur;
+    try { store.set('ordrec', JSON.stringify(cur)); } catch (_) { /* ignore */ }
   }
-  function sortGroupsByTs() {
+  const ordKey = (r, cls) => { const o = ordRec[rowFolio(r)]; return o && o[2] === cls ? o[0] : 0; };
+  function ordFetch(row, cls) {
+    const f = rowFolio(row);
+    if (!f || !hasWS()) return;
+    row.dataset.avcxOrdReq = '1'; // una sola vez por fila: si falla, la reintenta fill() cuando la fila se ve (y entonces la hora queda guardada también)
+    loadWS(f).then(d => { if (d && d.ts) { ordSet(f, d.ts, 'w', cls); scheduleSortTs(); } }).catch(() => { /* ya hay reintento por fila visible */ });
+  }
+  function sortRecent() {
     splitGroups.forEach(g => {
-      if (!SORT_TS_GROUPS.includes(g.cls)) return;
+      if (!ORDER_GROUPS.includes(g.cls)) return;
       const rows = [...g.tbody.rows];
-      rows.forEach(r => { if (!r.dataset.avcxTs && !r.dataset.avcxTsReq) prefetchTs(r); });
+      rows.forEach(r => { if (!ordKey(r, g.cls) && !r.dataset.avcxOrdReq) ordFetch(r, g.cls); });
       if (rows.length < 2) return;
-      const sorted = rows.map((r, i) => ({ r, i, k: Number(r.dataset.avcxTs) || -1 })).sort((a, b) => b.k - a.k || a.i - b.i).map(x => x.r);
+      const sorted = rows.map((r, i) => ({ r, i, k: ordKey(r, g.cls) })).sort((a, b) => b.k - a.k || a.i - b.i).map(x => x.r);
       if (sorted.every((r, i) => r === rows[i])) return; // ya están en orden: no se toca el DOM
       sorted.forEach(r => g.tbody.appendChild(r));
     });
+    ordSave();
   }
   function scheduleSortTs() {
-    if (!SORT_TS_ON || sortRaf) return;
-    sortRaf = requestAnimationFrame(() => { sortRaf = 0; sortGroupsByTs(); });
+    if (document.hidden) ordSave(); // con la pestaña oculta no corre requestAnimationFrame: lo anotado se guarda ya (el orden se aplica al volver)
+    if (!ORDER_ON || sortRaf) return;
+    sortRaf = requestAnimationFrame(() => { sortRaf = 0; sortRecent(); });
   }
 
   // Títulos con flecha y conteo (sin los eliminados ocultos); muestra u oculta cada tabla según tenga filas visibles y no esté colapsada
@@ -2083,6 +2173,7 @@
       if (fresh && !splitKeep) { clearSplitRows(); resetSplitOrder(); }
       splitAssignOrder(table); // antes de procesar las filas nuevas
       setupSplitToggle(table);
+      setupNotifyToggle(table);
     }
     let changed = false;
 
@@ -2189,7 +2280,7 @@
     try { return await pollCore(); } finally { perf.pollMs += performance.now() - t; }
   }
   async function pollCore() {
-    if (pollBusy || document.hidden) return;
+    if (pollBusy) return; // la pestaña oculta la regula pollTick (HIDDEN_EVERY)
     const table = findTable();
     if (!table) return;
     const tbody = table.querySelector('tbody');
@@ -2221,7 +2312,7 @@
         if (old.dataset.avcxSigP === undefined) { old.dataset.avcxSigP = sig; return; } // primera vez que el sondeo la ve: queda de referencia
         if (old.dataset.avcxSigP !== sig) { cambiadas.push({ old, r, sig }); ins.push(r); }
       });
-      const gone = [...mine].filter(([f]) => !fresh.has(f)).map(([, r]) => r);
+      const gone = [...mine].filter(([f, r]) => !fresh.has(f) && !r.dataset.avcxExtra).map(([, r]) => r); // las traídas de otras hojas (pollExtra) no vienen en esta hoja: no se quitan
 
       // Resguardos: si casi todo "cambió" la firma no es confiable (p. ej. texto que cambia solo); si casi todo "desapareció" la página no es la misma
       if (cambiadas.length >= 5 && cambiadas.length > mine.size / 2) {
@@ -2234,7 +2325,8 @@
       const quitar = gone.length && gone.length <= Math.max(3, mine.size / 2) ? gone : [];
       if (!ins.length && !quitar.length) { pollLastSig = sig; pollOk(); return; }
 
-      cambiadas.forEach(c => { forgetRowCaches(c.old); dropRow(c.old); });
+      ordPrev.clear();
+      cambiadas.forEach(c => { ordPrev.set(rowFolio(c.old), c.old.dataset.avcxStatus); forgetRowCaches(c.old); dropRow(c.old); });
       quitar.forEach(dropRow);
       ins.forEach(r => { r.dataset.avcxSigP = rowSig(r); }); // referencia de la próxima comparación
       // el aviso cuenta solo los que se van a ver (los eliminados ocultos no cuentan)
@@ -2242,7 +2334,7 @@
       const nN = nuevas.filter(vis).length, nC = cambiadas.filter(c => vis(c.r)).length;
       ins.slice().reverse().forEach(r => tbody.insertBefore(document.importNode(r, true), tbody.firstChild));
       splitKeep = true; splitPrepend = true; // las nuevas y actualizadas se acomodan arriba de su tabla y lo ya acomodado se conserva
-      try { enhance(); } finally { splitKeep = false; splitPrepend = false; }
+      try { enhance(); } finally { splitKeep = false; splitPrepend = false; ordPrev.clear(); }
       const partes = [];
       if (nN) partes.push(nN === 1 ? '1 AVC nuevo' : `${nN} AVC nuevos`);
       if (nC) partes.push(nC === 1 ? '1 AVC actualizado' : `${nC} AVC actualizados`);
@@ -2259,10 +2351,247 @@
     }
   }
 
-  if (AUTO_REFRESH_SEC > 0) {
-    setInterval(pollForNewRows, AUTO_REFRESH_SEC * 1000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) pollForNewRows(); }); // al volver a la pestaña se pone al día de inmediato
+  /* ---- Vigilancia de pendientes (0.104, ver WATCH_ON) ---- */
+  // Todo es la misma página del portal (mismo dominio, tu sesión, GET con otros filtros): no agrega dominios. El servicio web solo se consulta para un AVC que
+  // cambió sin que el script lo viera (página cerrada) y no tiene hora guardada. Lo guardado ('pend' en el gestor) es solo folio -> estatus de los pendientes
+  // y la hora de la última revisión. Las filas traídas llevan data-avcx-extra: el sondeo de la hoja no las quita; aquí se reemplazan o se quitan.
+  const WATCH_FRESH_MS = 3 * 60000;   // si la revisión anterior fue hace menos de esto, un cambio se anota con la hora de ahora ('o'); si no, con momento_cruce ('w')
+  let watchBusy = false;
+  let watchBroken = false;            // el filtro no respondió como se esperaba: se usa el respaldo (hojas 2..)
+  let pollN = 0, hidN = 0;
+  const watchTried = new Set();       // folios que ya se intentaron traer en esta carga y no aparecieron (no se repite)
+  const statusIdxOf = t => { const h = t.querySelector('thead tr') || t.querySelector('tr'); return h ? [...h.cells].findIndex(th => STATUS_COL_RE.test(norm(th.textContent))) : -1; };
+  function rawCls(r, idx) {
+    const c = idx >= 0 ? r.cells[idx] : null;
+    if (!c) return '';
+    const txt = norm(c.textContent);
+    const rule = STATUS_RULES.find(x => x.re.test(txt));
+    return rule ? rule.cls : '';
   }
+  const onPage1 = () => (new URL(location.href).searchParams.get('page') || '1') === '1';
+  // Lee una hoja: [{ f, r, cls }] y el total de hojas ("Página 1 de 52"); null si no trae listado
+  async function readList(url) {
+    const html = await fetchHtml({ url, htmx: false });
+    const t = findTable(parseHtml(html));
+    if (!t) return null;
+    const idx = statusIdxOf(t);
+    if (idx < 0) return null;
+    const m = html.match(/P[aá]gina\s+\d+\s+de\s+(\d+)/i);
+    const rows = [];
+    t.querySelectorAll('tbody tr').forEach(r => { const f = rowFolio(r); if (f && !isDeletedRow(r)) rows.push({ f, r, cls: rawCls(r, idx), st: r.cells[idx] ? r.cells[idx].textContent : '' }); });
+    return { rows, pages: m ? +m[1] : 1 };
+  }
+  // Campos del formulario de filtros para armar las consultas (solo si es GET y tiene Estatus y Folio); null = no se puede, se usa el respaldo
+  function watchSpec() {
+    if (watchBroken) return null;
+    const table = findTable();
+    const el = table && findFilter(table);
+    const form = el && (el.tagName === 'FORM' ? el : el.querySelector('form'));
+    if (!form || (form.getAttribute('method') || 'get').toLowerCase() !== 'get') return null;
+    const sel = [...form.querySelectorAll('select[name]')].find(x => /estatus/i.test(fieldLabel(x) + ' ' + x.name));
+    const fol = [...form.querySelectorAll('input[name]')].find(x => /folio/i.test(fieldLabel(x) + ' ' + x.name));
+    if (!sel || !fol) return null;
+    const opts = [...sel.options].filter(o => o.value !== '').map(o => {
+      const t = norm(o.textContent);
+      const r = STATUS_RULES.find(x => x.re.test(t));
+      return { v: o.value, cls: r ? r.cls : '' };
+    }).filter(o => o.cls === 'warn' || o.cls === 'bad');
+    if (!opts.length) return null;
+    const base = new URL(location.href);
+    if (base.searchParams.get(sel.name) || base.searchParams.get(fol.name)) return null; // ya filtras por estatus o folio: no aplica
+    base.searchParams.delete('page');
+    return { base, est: sel.name, fol: fol.name, opts };
+  }
+  const urlWith = (base, set) => { const u = new URL(base.href); Object.entries(set).forEach(([k, v]) => u.searchParams.set(k, v)); return u.href; };
+  function domRows() {
+    const m = new Map();
+    const tb = findTable() && findTable().querySelector('tbody');
+    [...(tb ? tb.querySelectorAll('tr') : []), ...document.querySelectorAll('#avcx-split tbody tr')].forEach(r => { const f = rowFolio(r); if (f && !m.has(f)) m.set(f, r); });
+    return m;
+  }
+  // Pone filas de otras hojas en la hoja 1 (arriba de su tabla; luego sortRecent las acomoda por hora). drop = folios traídos antes que ya no aplican.
+  function importRows(list, drop) {
+    const tbody = findTable() && findTable().querySelector('tbody');
+    if (!tbody) return 0;
+    const mine = domRows();
+    (drop || []).forEach(f => { const o = mine.get(f); if (o && o.dataset.avcxExtra) { forgetRowCaches(o); dropRow(o); } });
+    const ins = [];
+    list.forEach(x => {
+      const old = mine.get(x.f);
+      if (old && !old.dataset.avcxExtra) return; // ya está en esta hoja: la atiende el sondeo normal
+      if (old && old.dataset.avcxSigP === rowSig(x.r)) return; // traída antes y sin cambios
+      if (old) { forgetRowCaches(old); dropRow(old); }
+      ins.push(x);
+    });
+    if (!ins.length) { if (drop && drop.length) updateSplit(findTable()); return 0; }
+    ordPrev.clear();
+    ins.forEach(x => {
+      ordPrev.set(x.f, x.cls); // su hora ya está anotada: splitDistribute no la cambia por la de ahora
+      const n = document.importNode(x.r, true);
+      n.dataset.avcxExtra = '1';
+      n.dataset.avcxSigP = rowSig(x.r);
+      tbody.insertBefore(n, tbody.firstChild);
+    });
+    splitKeep = true; splitPrepend = true;
+    try { enhance(); } finally { splitKeep = false; splitPrepend = false; ordPrev.clear(); }
+    scheduleSortTs();
+    return ins.length;
+  }
+  // Hora de llegada de un cambio: la de ahora si la revisión anterior fue reciente; si no, momento_cruce del servicio web (o, sin servicio, la revisión anterior)
+  async function stamp(f, cls, fresh, prevT, now) {
+    if (fresh) { ordSet(f, now, 'o', cls); return; }
+    const o = ordRec[f];
+    if (o && o[2] === cls) return;
+    let ms = 0;
+    if (hasWS()) { try { const d = await loadWS(f); ms = d && d.ts; } catch (_) { /* sin hora del servicio */ } }
+    ordSet(f, ms || prevT || now, ms ? 'w' : 'o', cls);
+  }
+  async function watchPend(spec) {
+    const now = Date.now();
+    let prev = { t: 0, f: {} };
+    try { prev = JSON.parse(store.get('pend', '{}')) || prev; prev.f = prev.f || {}; } catch (_) { prev = { t: 0, f: {} }; }
+    const fresh = !!prev.t && now - prev.t < WATCH_FRESH_MS;
+    // 1) los pendientes de hoy, por cada estatus vigilado
+    const cur = new Map();
+    for (const o of spec.opts) {
+      for (let p = 1; p <= WATCH_MAX_PAGES; p++) {
+        const res = await readList(urlWith(spec.base, p > 1 ? { [spec.est]: o.v, page: p } : { [spec.est]: o.v }));
+        if (!res) throw appErr('el listado filtrado no se pudo leer', 'http');
+        if (res.rows.some(x => x.cls !== o.cls)) { watchBroken = true; throw appErr('el filtro de estatus no respondió como se esperaba', 'http'); }
+        res.rows.forEach(x => cur.set(x.f, x));
+        if (p >= res.pages || !res.rows.length) break;
+      }
+    }
+    const mine = domRows();
+    const imp = [], drop = [], waits = [];
+    let cambios = 0;
+    // 2) entraron a Reconocimiento (o están ahí y no se ven en esta hoja)
+    cur.forEach(x => {
+      if (x.cls !== 'bad') return;
+      const m0 = mine.get(x.f);
+      if (prev.t && prev.f[x.f] !== 'bad') { cambios++; waits.push(stamp(x.f, 'bad', fresh, prev.t, now)); if (fresh && !(m0 && !m0.dataset.avcxExtra)) notifyAvc(x.f, 'bad', x.st); }
+      else if (!(ordRec[x.f] && ordRec[x.f][2] === 'bad')) waits.push(stamp(x.f, 'bad', false, 0, now));
+      const m = mine.get(x.f);
+      if (!m || m.dataset.avcxExtra) imp.push(x);
+    });
+    // 3) salieron de los pendientes: se trae su fila por folio (las que no quepan en esta revisión se quedan para la siguiente)
+    const left = Object.keys(prev.f).filter(f => !cur.has(f));
+    const keep = {};
+    let budget = WATCH_MAX_FETCH;
+    for (const f of left) {
+      const m = mine.get(f);
+      if (m && !m.dataset.avcxExtra) continue; // está en esta hoja: el sondeo normal ya la actualiza
+      if (budget <= 0) { keep[f] = prev.f[f]; continue; }
+      budget--;
+      let res = null;
+      try { res = await readList(urlWith(spec.base, { [spec.fol]: f })); } catch (_) { keep[f] = prev.f[f]; continue; }
+      const x = res && res.rows.find(y => y.f === f);
+      if (!x) { if (m) drop.push(f); continue; }
+      if (!ORDER_GROUPS.includes(x.cls)) { if (m) drop.push(f); continue; } // eliminado u otro estatus: no se muestra
+      cambios++;
+      await stamp(f, x.cls, fresh, prev.t, now);
+      if (fresh) notifyAvc(f, x.cls, x.st);
+      const o = ordRec[f];
+      if (x.cls === 'ok' && !(o && o[0] >= now - WATCH_KEEP_HOURS * 3600e3)) { if (m) drop.push(f); continue; }
+      imp.push(x);
+    }
+    // 4) Cumplidos recientes de otras hojas que no están en pantalla (al recargar, o porque bajaron de hoja): se traen por folio, una vez por carga
+    const limit = now - WATCH_KEEP_HOURS * 3600e3;
+    for (const [f, o] of Object.entries(ordRec)) {
+      if (budget <= 0) break;
+      if (o[2] !== 'ok' || o[0] < limit || mine.has(f) || cur.has(f) || watchTried.has(f) || imp.some(x => x.f === f)) continue;
+      watchTried.add(f);
+      budget--;
+      let res = null;
+      try { res = await readList(urlWith(spec.base, { [spec.fol]: f })); } catch (_) { watchTried.delete(f); continue; }
+      const x = res && res.rows.find(y => y.f === f);
+      if (x && x.cls === 'ok') imp.push(x);
+    }
+    // 5) traídas antes que ya no aplican: Cumplido viejo, o en Reconocimiento que ya no está ahí y no se pudo traer
+    mine.forEach((r, f) => {
+      if (!r.dataset.avcxExtra || imp.some(x => x.f === f)) return;
+      const o = ordRec[f];
+      if (r.dataset.avcxStatus === 'ok' && !(o && o[0] >= limit)) drop.push(f);
+    });
+    if (waits.length) await Promise.all(waits);
+    // la próxima revisión compara contra esto
+    const next = { t: now, f: keep };
+    cur.forEach(x => { next.f[x.f] = x.cls; });
+    try { store.set('pend', JSON.stringify(next)); } catch (_) { /* ignore */ }
+    const n = importRows(imp, drop);
+    ordSave();
+    if (prev.t && cambios && n) toast(cambios === 1 ? '1 AVC de otras hojas cambió de estatus y se muestra arriba.' : `${cambios} AVC de otras hojas cambiaron de estatus y se muestran arriba.`);
+  }
+  // Respaldo (0.103): revisa las hojas 2..(1 + EXTRA_PAGES) y trae los que llegaron a Reconocimiento o Cumplido en las últimas WATCH_KEEP_HOURS horas
+  const extraPrev = new Map(); // folio -> estatus en la revisión anterior (solo en memoria)
+  async function pollExtra() {
+    if (!EXTRA_PAGES) return;
+    const u = new URL(location.href);
+    const found = [];
+    for (let p = 2; p <= EXTRA_PAGES + 1; p++) {
+      u.searchParams.set('page', String(p));
+      let res;
+      try { res = await readList(u.href); } catch (_) { break; } // la falla del portal la avisa el sondeo principal
+      if (!res || !res.rows.length) break;
+      found.push(...res.rows);
+      if (p >= res.pages) break;
+    }
+    if (!found.length) return;
+    const now = Date.now();
+    const waits = [];
+    let cambios = 0;
+    found.forEach(x => {
+      const prev = extraPrev.get(x.f);
+      extraPrev.set(x.f, x.cls);
+      if (!ORDER_GROUPS.includes(x.cls)) return;
+      if (prev !== undefined && prev !== x.cls) { cambios++; ordSet(x.f, now, 'o', x.cls); notifyAvc(x.f, x.cls, x.st); }
+      else waits.push(stamp(x.f, x.cls, false, 0, now));
+    });
+    if (waits.length) await Promise.all(waits);
+    const limit = now - WATCH_KEEP_HOURS * 3600e3;
+    const imp = [], drop = [];
+    found.forEach(x => {
+      const o = ordRec[x.f];
+      if (ORDER_GROUPS.includes(x.cls) && o && o[2] === x.cls && (x.cls === 'bad' || o[0] >= limit)) imp.push(x);
+      else drop.push(x.f);
+    });
+    const n = importRows(imp, drop);
+    ordSave();
+    if (cambios && n) toast(cambios === 1 ? '1 AVC de las hojas siguientes cambió de estatus y se muestra arriba.' : `${cambios} AVC de las hojas siguientes cambiaron de estatus y se muestran arriba.`);
+  }
+  async function watchTick() {
+    if (!WATCH_ON || !ORDER_ON || !splitView || !splitGroups.length || watchBusy || !onPage1()) return;
+    watchBusy = true;
+    try {
+      const spec = watchSpec();
+      if (spec) await watchPend(spec);
+      else await pollExtra();
+    } catch (e) {
+      if (DEBUG) console.warn('[AVCx] vigilancia de pendientes:', e.message);
+      if (watchBroken) { try { await pollExtra(); } catch (_) { /* ignore */ } }
+    } finally {
+      watchBusy = false;
+    }
+  }
+  // Un solo temporizador (el del sondeo, que ya existía): pestaña visible = hoja cada AUTO_REFRESH_SEC y vigilancia cada WATCH_EVERY sondeos;
+  // pestaña oculta = ambas cada HIDDEN_EVERY sondeos. Al volver a la pestaña, todo de inmediato.
+  // Si el portal falla (mantenimiento, sin red, sesión vencida), se le pregunta cada vez menos: tras 2 fallas seguidas cada 30 s, luego 1, 2, 4 y hasta 5 minutos (0.105).
+  let failN = 0;
+  async function pollTick(back) {
+    if (pollFails >= 2 && back !== true) { if (failN++ % Math.min(2 ** (pollFails - 1), 20)) return; }
+    else failN = 0;
+    const hid = document.hidden;
+    if (hid) { if (HIDDEN_EVERY <= 0 || hidN++ % HIDDEN_EVERY) return; }
+    else hidN = 0;
+    await pollForNewRows();
+    if (back === true || hid || pollN++ % WATCH_EVERY === 0) watchTick();
+  }
+
+  if (AUTO_REFRESH_SEC > 0) {
+    setInterval(pollTick, AUTO_REFRESH_SEC * 1000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) pollTick(true); }); // al volver a la pestaña se pone al día de inmediato
+  }
+
 
   /* ================= TOOLTIP + DIAGNÓSTICO ================= */
   const style = document.createElement('style');
@@ -2315,8 +2644,8 @@
     .avcx-fol-full{display:none!important}
     .avcx-fol-short{cursor:pointer}
     .avcx-fol-short:hover{text-decoration:underline dotted}
-    #avcx-deltoggle,#avcx-splittoggle{display:flex;align-items:center;gap:6px;margin:8px 0 4px;font:13px system-ui,sans-serif;cursor:pointer;user-select:none}
-    #avcx-deltoggle input,#avcx-splittoggle input{margin:0;cursor:pointer}
+    #avcx-deltoggle,#avcx-splittoggle,#avcx-notiftoggle{display:flex;align-items:center;gap:6px;margin:8px 0 4px;font:13px system-ui,sans-serif;cursor:pointer;user-select:none}
+    #avcx-deltoggle input,#avcx-splittoggle input,#avcx-notiftoggle input{margin:0;cursor:pointer}
     .avcx-filtbar{display:block;width:100%;text-align:left;margin:0 0 8px;padding:6px 10px;border:1px solid #bbb;border-radius:4px;
       background:#f3f3f3;color:#333;font:13px system-ui,sans-serif;cursor:pointer}
     .avcx-filtbar:hover{background:#e6e6e6}
@@ -2351,8 +2680,8 @@
     html.avcx-touch #avcx-toast{left:8px;right:8px;max-width:none}
     html.avcx-touch #avcx-banner{font-size:12px;padding:6px 10px}
     html.avcx-touch .avcx-filtbar{padding:10px 12px;font-size:14px}
-    html.avcx-touch #avcx-deltoggle,html.avcx-touch #avcx-splittoggle{padding:6px 0;font-size:15px}
-    html.avcx-touch #avcx-deltoggle input,html.avcx-touch #avcx-splittoggle input{width:20px;height:20px}
+    html.avcx-touch #avcx-deltoggle,html.avcx-touch #avcx-splittoggle,html.avcx-touch #avcx-notiftoggle{padding:6px 0;font-size:15px}
+    html.avcx-touch #avcx-deltoggle input,html.avcx-touch #avcx-splittoggle input,html.avcx-touch #avcx-notiftoggle input{width:20px;height:20px}
   `;
   document.head.appendChild(style);
   if (IS_TOUCH) document.documentElement.classList.add('avcx-touch');
@@ -2615,6 +2944,20 @@
       const c = ci >= 0 ? row.cells[ci] : null;
       info.estatus_celda = c ? { texto: clean(c.textContent).replace(/\d/g, '9').slice(0, 400), tooltip: (c.title || '').replace(/\d/g, '9').slice(0, 400) } : 'no encontré la celda';
     } catch (e) { info.estatus_celda = { error: e.message }; }
+    try { // vigilancia de pendientes (0.104): solo nombres de campos y conteos, sin folios
+      const sp = watchSpec();
+      let pend = {};
+      try { pend = JSON.parse(store.get('pend', '{}')) || {}; } catch (_) { pend = {}; }
+      info.vigilancia = {
+        modo: !WATCH_ON ? 'apagada' : sp ? 'filtro por estatus' : watchBroken ? 'respaldo: el filtro de estatus no respondió como se esperaba' : 'respaldo: hojas siguientes (no encontré formulario GET con Estatus y Folio, o ya filtras por estatus/folio)',
+        campos: sp ? { estatus: sp.est, folio: sp.fol, opciones_vigiladas: sp.opts.map(o => o.cls) } : null,
+        hoja_1: onPage1(),
+        pendientes_guardados: Object.keys(pend.f || {}).length,
+        ultima_revision: pend.t ? fmtHora(pend.t) : 'ninguna',
+        filas_de_otras_hojas: document.querySelectorAll('tr[data-avcx-extra]').length,
+        horas_guardadas: Object.keys(ordRec).length,
+      };
+    } catch (e) { info.vigilancia = { error: e.message }; }
     // Razón social (0.94): estado de la celda y de CLAA, solo booleanos y el motivo de CLAA (sin RFC ni nombres)
     try {
       const tdRs = row.querySelector('td[data-avcx-col="rs"]'), tdRf = row.querySelector('td[data-avcx-col="rfc"]');
@@ -4134,7 +4477,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   let t0;
   new MutationObserver(ms => {
     if (ms.every(m => tip.contains(m.target) || toastEl.contains(m.target) || bannerEl.contains(m.target) || (panel && panel.contains(m.target)) ||
-        (m.target.closest && m.target.closest('#avcx-deltoggle, #avcx-splittoggle, .avcx-filtbar, #avcx-nav, #avcx-split, .avcx-splitbar, #avcx-print, #avcx-ravc, #avcx-drop')))) return;
+        (m.target.closest && m.target.closest('#avcx-deltoggle, #avcx-splittoggle, #avcx-notiftoggle, .avcx-filtbar, #avcx-nav, #avcx-split, .avcx-splitbar, #avcx-print, #avcx-ravc, #avcx-drop')))) return;
     perf.mo++;
     clearTimeout(t0);
     t0 = setTimeout(enhance, 200); // htmx puede reemplazar la tabla (filtros, paginación)
