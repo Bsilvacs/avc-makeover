@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.107
+// @version      0.108
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -1765,11 +1765,41 @@
   // Avisos de escritorio (0.105, ver NOTIFY_ON)
   const notifySupported = () => typeof Notification === 'function';
   let notifyOn = NOTIFY_ON && notifySupported() && store.get('notif', '0') === '1' && Notification.permission === 'granted';
-  function notifyAvc(f, cls, st) {
+  // Contenido (0.108): título = estatus; cuerpo = pedimento(s), RFC y razón social. Se toman de la fila si ya están en pantalla; si no, del servicio web
+  // (por folio, casi siempre ya en caché) y la razón social del catálogo RFC o de CLAA (lo mismo que hace la columna). Cada búsqueda espera como máximo 5 s:
+  // si algo no llega, el aviso sale sin ese dato. El folio solo se muestra si no se encontró nada más.
+  const within = (p, ms) => Promise.race([p, new Promise(res => setTimeout(() => res(null), ms))]).catch(() => null);
+  async function notifyInfo(f) {
+    const row = [...document.querySelectorAll('tr[data-avcx]')].find(r => rowFolio(r) === f);
+    const cell = id => { const c = row && row.querySelector(`td[data-avcx-col="${id}"]`); const t = c ? clean(c.textContent) : ''; return /^[—…\-.\s]*$/.test(t) ? '' : t; };
+    let ped = cell('ped'), rfc = cell('rfc'), rs = cell('rs');
+    if ((!ped || !rfc) && hasWS()) {
+      const d = await within(loadWS(f), 5000);
+      if (d) { ped = ped || d.ped || ''; rfc = rfc || d.rfc || ''; }
+    }
+    if (!rs && rfc) {
+      const names = [];
+      for (const r of uniq(rfc.split(/[,\s]+/).map(x => x.toUpperCase()).filter(Boolean))) {
+        const n = CAT.r[r] || CLIENTES[r] || (CLAA_ENABLED ? await within(claaRS(r), 5000) : '');
+        if (n) names.push(n);
+      }
+      rs = names.join(' | ');
+    }
+    return { ped, rfc, rs };
+  }
+  async function notifyAvc(f, cls, st) {
     if (!notifyOn || !f || !ORDER_GROUPS.includes(cls)) return;
+    let info = { ped: '', rfc: '', rs: '' };
+    try { info = await notifyInfo(f); } catch (_) { /* sale sin esos datos */ }
+    const estatus = clean(st) || (cls === 'bad' ? 'Reconocimiento Aduanero' : 'Cumplido');
+    const lines = [];
+    if (info.ped) lines.push('Pedimento ' + info.ped);
+    if (info.rfc) lines.push('RFC ' + info.rfc);
+    if (info.rs) lines.push(info.rs);
+    if (!lines.length) lines.push(f);
     try {
-      const n = new Notification(cls === 'bad' ? 'AVC en Reconocimiento Aduanero' : 'AVC cumplido', {
-        body: f + (st ? '\n' + clean(st).slice(0, 120) : ''),
+      const n = new Notification('AVC · ' + estatus.slice(0, 80), {
+        body: lines.join('\n').slice(0, 300),
         tag: 'avcx-' + f,                  // el mismo AVC no se repite: el aviso nuevo reemplaza al anterior
         requireInteraction: cls === 'bad', // el de reconocimiento se queda hasta que lo cierres
       });
@@ -2968,7 +2998,10 @@
         modo: !WATCH_ON ? 'apagada' : sp ? 'filtro por estatus' : watchBroken ? 'respaldo: el filtro de estatus no respondió como se esperaba' : 'respaldo: hojas siguientes (no encontré formulario GET con Estatus y Folio, o ya filtras por estatus/folio)',
         campos: sp ? { estatus: sp.est, folio: sp.fol, opciones_vigiladas: sp.opts.map(o => o.cls) } : null,
         hoja_1: onPage1(),
+        version: (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '?',
         pendientes_guardados: Object.keys(pend.f || {}).length,
+        pendientes_por_estatus: Object.values(pend.f || {}).reduce((a, c) => { const k = c === 'bad' ? 'reconocimiento' : c === 'warn' ? 'no_presentado' : c || 'otro'; a[k] = (a[k] || 0) + 1; return a; }, {}),
+        no_presentado_mas_viejo_dias: (() => { const ds = Object.entries(pend.f || {}).filter(([, c]) => c === 'warn').map(([f]) => folioDate(f)).filter(Boolean); return ds.length ? Math.floor((Date.now() - Math.min(...ds)) / 86400e3) : '—'; })(),
         ultima_revision: pend.t ? fmtHora(pend.t) : 'ninguna',
         filas_de_otras_hojas: document.querySelectorAll('tr[data-avcx-extra]').length,
         horas_guardadas: Object.keys(ordRec).length,
