@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.106
+// @version      0.107
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -117,6 +117,7 @@
   const WATCH_EVERY = 4;              // cada cuántos sondeos (4 x AUTO_REFRESH_SEC 15 s = cada minuto)
   const WATCH_KEEP_HOURS = 24;        // Cumplido: AVC de otras hojas que se muestran en la hoja 1 si llegaron en estas últimas horas
   const WATCH_MAX_PAGES = 5;          // hojas como máximo por cada estatus vigilado (20 AVC por hoja)
+  const WATCH_WARN_DAYS = 9;          // No presentado: solo se vigilan los emitidos en estos últimos días (la fecha va en el folio). El AVC dura 7 días: el emitido el día 13 vence el 21 (fecha_vigencia del servicio); 9 días cubren hasta el final de ese día. Uno vencido sin presentar ya no cambia. Reconocimiento: todos, sin límite
   const WATCH_MAX_FETCH = 10;         // filas que se traen por folio en cada revisión como máximo (las demás, en la siguiente)
   const EXTRA_PAGES = 2;              // respaldo: hojas extra que se revisan si la vigilancia no se puede usar
   // Pestaña en segundo plano (0.104): el listado se sigue actualizando, más lento (cada HIDDEN_EVERY sondeos = cada minuto), para que la hora de cada cambio sea la real.
@@ -2368,6 +2369,8 @@
     const rule = STATUS_RULES.find(x => x.re.test(txt));
     return rule ? rule.cls : '';
   }
+  // Fecha de emisión que trae el folio: AVC + aduana (2) + DDMMAAAA + consecutivo -> ms (0 si no se entiende)
+  const folioDate = f => { const m = /^AVC\d{2}(\d{2})(\d{2})(\d{4})/.exec(f || ''); return m ? Date.UTC(+m[3], +m[2] - 1, +m[1]) : 0; };
   const onPage1 = () => (new URL(location.href).searchParams.get('page') || '1') === '1';
   // Lee una hoja: [{ f, r, cls }] y el total de hojas ("Página 1 de 52"); null si no trae listado
   async function readList(url) {
@@ -2455,13 +2458,16 @@
     const fresh = !!prev.t && now - prev.t < WATCH_FRESH_MS;
     // 1) los pendientes de hoy, por cada estatus vigilado
     const cur = new Map();
+    const oldWarn = now - WATCH_WARN_DAYS * 86400e3; // No presentados emitidos antes de esto ya vencieron: no se vigilan (0.107)
+    const tooOld = (f, cls) => cls === 'warn' && folioDate(f) > 0 && folioDate(f) < oldWarn;
     for (const o of spec.opts) {
       for (let p = 1; p <= WATCH_MAX_PAGES; p++) {
         const res = await readList(urlWith(spec.base, p > 1 ? { [spec.est]: o.v, page: p } : { [spec.est]: o.v }));
         if (!res) throw appErr('el listado filtrado no se pudo leer', 'http');
         if (res.rows.some(x => x.cls !== o.cls)) { watchBroken = true; throw appErr('el filtro de estatus no respondió como se esperaba', 'http'); }
-        res.rows.forEach(x => cur.set(x.f, x));
+        res.rows.forEach(x => { if (!tooOld(x.f, x.cls)) cur.set(x.f, x); });
         if (p >= res.pages || !res.rows.length) break;
+        if (res.rows.some(x => tooOld(x.f, x.cls))) break; // el listado va del más nuevo al más viejo: las hojas siguientes ya son vencidos
       }
     }
     const mine = domRows();
@@ -2477,7 +2483,7 @@
       if (!m || m.dataset.avcxExtra) imp.push(x);
     });
     // 3) salieron de los pendientes: se trae su fila por folio (las que no quepan en esta revisión se quedan para la siguiente)
-    const left = Object.keys(prev.f).filter(f => !cur.has(f));
+    const left = Object.keys(prev.f).filter(f => !cur.has(f) && !tooOld(f, prev.f[f])); // el No presentado que solo venció no cambió: no se consulta
     const keep = {};
     let budget = WATCH_MAX_FETCH;
     for (const f of left) {
