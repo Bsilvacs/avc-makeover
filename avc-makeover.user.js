@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.97
+// @version      0.99
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -102,6 +102,10 @@
     { cls: 'warn', title: 'No presentado' },
   ];
   const SPLIT_OTHER_TITLE = 'Otros estatus';
+  // Orden por fecha y hora: las tablas de SPLIT_TABLES_ON listadas en SORT_TS_GROUPS (cls 'ok' = Cumplido, 'bad' = Reconocimiento Aduanero) se ordenan de la más reciente a la más
+  // antigua según la fecha y hora del cruce (momento_cruce) que entrega el servicio web ANAM; requiere el servicio web configurado. No presentado queda en el orden del portal (emisión).
+  const SORT_TS_ON = false;           // false = las filas quedan en el orden del portal. APAGADO en la 0.99 mientras se define de dónde sale la fecha del último estatus
+  const SORT_TS_GROUPS = ['ok', 'bad'];
   const SPLIT_MAX_ROWS = 4;           // renglones visibles por tabla; si hay más, scroll vertical (0 = sin límite)
   // Casilla "Separar por estatus" (dentro de la sección de filtros, junto a "Ocultar AVC eliminados"): activa o desactiva la vista de tres tablas al momento;
   // desactivada, todos los AVC vuelven a una sola tabla, en su orden original. SPLIT_DEFAULT = cómo carga: true = activada (tres tablas), false = desactivada (una tabla).
@@ -854,6 +858,15 @@
   // Desde la 0.84, Pedimento(s) y RFC salen en orden ASCENDENTE por número de pedimento y, dentro de un mismo pedimento (remesas), por consecutivo; el servicio los devuelve en otro orden
   // (p. ej. 6000003, 6000004, 6000005, 6000001, 6000002). Cada pedimento viaja con SU RFC: se ordenan los registros completos y de ahí salen las dos listas, así el RFC n sigue siendo el del pedimento n.
   // Los registros del nivel principal traen pedimento y consecutivo pero no RFC; el RFC sale de peticiones[] y se une por pedimento + consecutivo. Solo cambia el ORDEN: los datos son los mismos de antes.
+  // Fecha y hora del servicio ("14-11-2026 09:26:37", también "14-11-26 9:26:37" o "2026-11-14T09:26:37") -> milisegundos para comparar (0 si no se entiende)
+  function fechaTs(s) {
+    const t = String(s || '').trim();
+    let m = t.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m) return Date.UTC(m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+    m = t.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)) : 0;
+  }
+
   function fieldsFromWS(j) {
     const recs = new Map(), extra = []; // recs: pedimento|consecutivo -> { ped, cons, rfcs[] }; extra: RFC que vienen sin pedimento
     let inicio = inicioFrom(j.documentos_aduanales);
@@ -876,11 +889,13 @@
       if (!inicio) inicio = inicioFrom(pj.documentos_aduanales);
     });
     const sorted = [...recs.values()].sort((a, b) => a.ped.localeCompare(b.ped, 'es', { numeric: true }) || a.cons - b.cons);
-    return { ped: uniq(sorted.map(r => r.ped)).join(', '), rfc: uniq([...sorted.flatMap(r => r.rfcs), ...extra]).join(', '), inicio };
+    // ts (0.98): momento_cruce (fecha y hora del cruce / último estatus) y, si viene vacío, fecha_emision; se usa para ordenar las tablas Cumplido y Reconocimiento Aduanero
+    const ts = fechaTs(j.momento_cruce) || fechaTs(j.fecha_emision);
+    return { ped: uniq(sorted.map(r => r.ped)).join(', '), rfc: uniq([...sorted.flatMap(r => r.rfcs), ...extra]).join(', '), inicio, ts };
   }
 
   const wsMem = new Map();
-  const WSKEY = 'avcxws5:'; // prefijo nuevo (0.84): los resultados cacheados ahora salen ordenados por pedimento (0.40: incluyen el AVC de inicio de tránsito)
+  const WSKEY = 'avcxws6:'; // prefijo nuevo (0.98: el resultado trae ts); antes avcxws5 (0.84): los resultados cacheados ahora salen ordenados por pedimento (0.40: incluyen el AVC de inicio de tránsito)
   function loadWS(folio) {
     if (wsMem.has(folio)) return wsMem.get(folio);
     const p = (async () => {
@@ -921,6 +936,7 @@
     try {
       const d = await loadWS(folio);
       wsFailed.delete(folio);
+      if (d.ts) setRowTs(row, d.ts);
       const tdPed = row.querySelector('td[data-avcx-col="ped"]');
       const tdRfc = row.querySelector('td[data-avcx-col="rfc"]');
       if (d.ped && tdPed) { tdPed.textContent = d.ped; tdPed.title = 'Fuente: servicio web ANAM'; }
@@ -1760,6 +1776,37 @@
     });
   }
 
+  // Orden por fecha y hora (0.98): en las tablas Cumplido y Reconocimiento Aduanero (SORT_TS_GROUPS) las filas van de la más reciente a la más antigua según
+  // momento_cruce del servicio web (o fecha_emision si viene vacío). Sin servicio web configurado no hay fecha y el orden queda como el del portal. Las filas sin fecha (aún sin
+  // consultar o con falla) quedan al final, en su orden original. La fecha se pide al servicio web también para las filas que no están a la vista (misma consulta que ya
+  // se hace al verlas, con la caché de sesión: no se repite). Se acomoda en un solo cuadro (requestAnimationFrame), sin temporizadores. Solo es visual.
+  let sortRaf = 0;
+  function setRowTs(row, ts) {
+    if (!SORT_TS_ON || !ts) return;
+    if (row.dataset.avcxTs !== String(ts)) { row.dataset.avcxTs = String(ts); scheduleSortTs(); }
+  }
+  function prefetchTs(row) {
+    const folio = rowFolio(row);
+    if (!folio || !hasWS()) return;
+    row.dataset.avcxTsReq = '1'; // una sola vez por fila: si falla, la reintenta fill() cuando la fila se ve
+    loadWS(folio).then(d => { if (d && d.ts) setRowTs(row, d.ts); }).catch(() => { /* ya hay reintento por fila visible */ });
+  }
+  function sortGroupsByTs() {
+    splitGroups.forEach(g => {
+      if (!SORT_TS_GROUPS.includes(g.cls)) return;
+      const rows = [...g.tbody.rows];
+      rows.forEach(r => { if (!r.dataset.avcxTs && !r.dataset.avcxTsReq) prefetchTs(r); });
+      if (rows.length < 2) return;
+      const sorted = rows.map((r, i) => ({ r, i, k: Number(r.dataset.avcxTs) || -1 })).sort((a, b) => b.k - a.k || a.i - b.i).map(x => x.r);
+      if (sorted.every((r, i) => r === rows[i])) return; // ya están en orden: no se toca el DOM
+      sorted.forEach(r => g.tbody.appendChild(r));
+    });
+  }
+  function scheduleSortTs() {
+    if (!SORT_TS_ON || sortRaf) return;
+    sortRaf = requestAnimationFrame(() => { sortRaf = 0; sortGroupsByTs(); });
+  }
+
   // Títulos con flecha y conteo (sin los eliminados ocultos); muestra u oculta cada tabla según tenga filas visibles y no esté colapsada
   function updateSplit(table) {
     if (!splitGroups.length || splitHome !== table) return;
@@ -1783,6 +1830,7 @@
       if (g.wrap.style.display !== d) g.wrap.style.display = d;
       layoutSplitGroup(g);
     });
+    scheduleSortTs();
     const rest = [...table.querySelectorAll('tbody tr')].filter(r => r.closest('table') === table && visible(r));
     const barOn = !!(grouped && rest.length);
     const dT = (!rest.length && grouped) || (barOn && splitCollapsed.other) ? 'none' : '';
@@ -2512,7 +2560,8 @@
       if (typeof x === 'string') {
         const s = x.trim();
         if ((s[0] === '{' || s[0] === '[') && d < 14) { try { walk(JSON.parse(s), path, d + 1); return; } catch (_) { /* no era JSON */ } }
-        if (/^\d{4}-\d{2}-\d{2}|^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(s)) out[path] = s.replace(/\d/g, '9');
+        // textos cortos con una fecha en cualquier parte (p. ej. el texto del estatus, que trae varias): se muestran con los dígitos tapados
+        if (s.length <= 400 && /\d{4}-\d{2}-\d{2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/.test(s)) out[path] = s.replace(/\d/g, '9');
       } else if (Array.isArray(x)) {
         x.slice(0, 5).forEach((e, i) => walk(e, path + '[' + i + ']', d + 1));
       } else if (x && typeof x === 'object') {
@@ -2555,6 +2604,14 @@
         info.campos = fieldsOf(d);
       } catch (e) { info.error = e.message; }
     }
+    // Texto de la celda Estatus del listado con los dígitos tapados (0.99): sirve para saber si el listado ya trae las fechas de cada estatus
+    try {
+      const tb = row.closest('table');
+      const hr = tb && [...tb.querySelectorAll('thead tr')].find(r => [...r.cells].some(c => STATUS_COL_RE.test(norm(c.textContent))));
+      const ci = hr ? [...hr.cells].findIndex(c => STATUS_COL_RE.test(norm(c.textContent))) : -1;
+      const c = ci >= 0 ? row.cells[ci] : null;
+      info.estatus_celda = c ? { texto: clean(c.textContent).replace(/\d/g, '9').slice(0, 400), tooltip: (c.title || '').replace(/\d/g, '9').slice(0, 400) } : 'no encontré la celda';
+    } catch (e) { info.estatus_celda = { error: e.message }; }
     // Razón social (0.94): estado de la celda y de CLAA, solo booleanos y el motivo de CLAA (sin RFC ni nombres)
     try {
       const tdRs = row.querySelector('td[data-avcx-col="rs"]'), tdRf = row.querySelector('td[data-avcx-col="rfc"]');
