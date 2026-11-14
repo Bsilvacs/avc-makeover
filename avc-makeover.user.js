@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.108
+// @version      0.109
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -21,7 +21,7 @@
   'use strict';
 
   /* ================= CONFIG ================= */
-  const DEBUG = false;           // true = logs detallados en consola (F12) y PW.avcx (ayudas de diagnóstico). Los avisos de "no encontré la columna / el filtro / el menú" salen siempre
+  let DEBUG = false;             // MODO DEBUG (0.109): ya no es una constante; lo lleva la casilla "Modo DEBUG" de los filtros (se guarda en el gestor, clave 'debug'). Activo = Shift+D / botón "Diagnóstico de la fila", "Copiar estructura" de la vista imprimible, logs en consola (F12) y PW.avcx. Los avisos de "no encontré la columna / el filtro / el menú" salen siempre
   // MEDICIÓN (apagada por defecto): cuenta pasadas de enhance(), peticiones, caché y memoria.
   // Shift+M (fuera de un campo de texto) copia al portapapeles un resumen de SOLO números (sin pedimentos, RFC ni razones sociales).
   const PERF = false;
@@ -195,6 +195,8 @@
     get: (k, d) => { try { return typeof GM_getValue === 'function' ? GM_getValue(k, d) : (k in mem0 ? mem0[k] : d); } catch (_) { return d; } },
     set: (k, v) => { try { if (typeof GM_setValue === 'function') GM_setValue(k, v); else mem0[k] = v; } catch (_) { /* ignore */ } },
   };
+  DEBUG = store.get('debug', '0') === '1'; // persistente: se conserva entre sesiones
+  let debugHook = null; // lo define el arranque: expone/quita PW.avcx al cambiar el modo
   let ADU_LEARN = {};
   try { ADU_LEARN = JSON.parse(store.get('aduanas', '{}')) || {}; } catch (_) { ADU_LEARN = {}; }
   function learnAduana(raw) {
@@ -1465,7 +1467,7 @@
     if (!FILTER_ACTIVE_ON || !el) return [];
     const out = [];
     el.querySelectorAll('input,select,textarea').forEach(f => {
-      if (f.closest('#avcx-deltoggle,#avcx-splittoggle,#avcx-notiftoggle')) return; // la casilla de este script no es un filtro del portal
+      if (f.closest('#avcx-deltoggle,#avcx-splittoggle,#avcx-notiftoggle,#avcx-debugtoggle')) return; // la casilla de este script no es un filtro del portal
       const t = (f.type || '').toLowerCase();
       if (/^(hidden|submit|button|reset|image|file|radio)$/.test(t)) return;
       let v = '';
@@ -1831,6 +1833,29 @@
     });
     const sp = mk('span', null, 'Avisos de escritorio');
     sp.title = 'Notificación del sistema cuando un AVC entra a Reconocimiento Aduanero o queda Cumplido. Solo con el portal abierto (aunque sea en otra pestaña). Es local: no se envía nada.';
+    lab.append(cb, sp);
+    const f = findFilter(table);
+    if (f) f.appendChild(lab);
+    else table.parentNode.insertBefore(lab, table);
+  }
+
+  // Casilla "Modo DEBUG" (0.109): muestra/oculta todas las herramientas de depuración. Persistente (store 'debug'). Sin atributo name: no se envía con el formulario.
+  function setupDebugToggle(table) {
+    if (document.getElementById('avcx-debugtoggle')) return;
+    const lab = mk('label');
+    lab.id = 'avcx-debugtoggle';
+    const cb = mk('input');
+    cb.type = 'checkbox';
+    cb.checked = DEBUG;
+    cb.addEventListener('change', () => {
+      DEBUG = cb.checked;
+      store.set('debug', DEBUG ? '1' : '0');
+      if (diagBtn) diagBtn.hidden = !DEBUG;
+      if (debugHook) debugHook();
+      toast(DEBUG ? 'Modo DEBUG activado: diagnóstico (Shift+D o botón de la fila), "Copiar estructura" en la vista imprimible y registros en la consola.' : 'Modo DEBUG desactivado.');
+    });
+    const sp = mk('span', null, 'Modo DEBUG');
+    sp.title = 'Muestra las herramientas de depuración: diagnóstico de la fila (Shift+D), "Copiar estructura (sin datos)" y registros en la consola. Se recuerda entre sesiones.';
     lab.append(cb, sp);
     const f = findFilter(table);
     if (f) f.appendChild(lab);
@@ -2206,6 +2231,7 @@
       setupSplitToggle(table);
       setupNotifyToggle(table);
     }
+    setupDebugToggle(table);
     let changed = false;
 
     const headRow = (table.tHead && table.tHead.rows[0]) || [...table.rows].find(r => r.querySelector('th'));
@@ -2690,8 +2716,8 @@
     .avcx-fol-full{display:none!important}
     .avcx-fol-short{cursor:pointer}
     .avcx-fol-short:hover{text-decoration:underline dotted}
-    #avcx-deltoggle,#avcx-splittoggle,#avcx-notiftoggle{display:flex;align-items:center;gap:6px;margin:8px 0 4px;font:13px system-ui,sans-serif;cursor:pointer;user-select:none}
-    #avcx-deltoggle input,#avcx-splittoggle input,#avcx-notiftoggle input{margin:0;cursor:pointer}
+    #avcx-deltoggle,#avcx-splittoggle,#avcx-notiftoggle,#avcx-debugtoggle{display:flex;align-items:center;gap:6px;margin:8px 0 4px;font:13px system-ui,sans-serif;cursor:pointer;user-select:none}
+    #avcx-deltoggle input,#avcx-splittoggle input,#avcx-notiftoggle input,#avcx-debugtoggle input{margin:0;cursor:pointer}
     .avcx-filtbar{display:block;width:100%;text-align:left;margin:0 0 8px;padding:6px 10px;border:1px solid #bbb;border-radius:4px;
       background:#f3f3f3;color:#333;font:13px system-ui,sans-serif;cursor:pointer}
     .avcx-filtbar:hover{background:#e6e6e6}
@@ -2726,8 +2752,8 @@
     html.avcx-touch #avcx-toast{left:8px;right:8px;max-width:none}
     html.avcx-touch #avcx-banner{font-size:12px;padding:6px 10px}
     html.avcx-touch .avcx-filtbar{padding:10px 12px;font-size:14px}
-    html.avcx-touch #avcx-deltoggle,html.avcx-touch #avcx-splittoggle,html.avcx-touch #avcx-notiftoggle{padding:6px 0;font-size:15px}
-    html.avcx-touch #avcx-deltoggle input,html.avcx-touch #avcx-splittoggle input,html.avcx-touch #avcx-notiftoggle input{width:20px;height:20px}
+    html.avcx-touch #avcx-deltoggle,html.avcx-touch #avcx-splittoggle,html.avcx-touch #avcx-notiftoggle,html.avcx-touch #avcx-debugtoggle{padding:6px 0;font-size:15px}
+    html.avcx-touch #avcx-deltoggle input,html.avcx-touch #avcx-splittoggle input,html.avcx-touch #avcx-notiftoggle input,html.avcx-touch #avcx-debugtoggle input{width:20px;height:20px}
   `;
   document.head.appendChild(style);
   if (IS_TOUCH) document.documentElement.classList.add('avcx-touch');
@@ -3038,7 +3064,7 @@
   }
 
   document.addEventListener('keydown', e => {
-    if (e.key !== 'D' || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (!DEBUG || e.key !== 'D' || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
     const tg = e.target;
     if (tg && (/^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName) || tg.isContentEditable)) return;
     if (cur) diagnose(cur);
@@ -3046,7 +3072,7 @@
 
   // MEDICIÓN: Shift+M copia contadores (solo números). Ver PERF.
   if (PERF) document.addEventListener('keydown', async e => {
-    if (e.key !== 'M' || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (!DEBUG || e.key !== 'M' || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
     const tg = e.target;
     if (tg && (/^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName) || tg.isContentEditable)) return;
     let ssN = 0, ssBytes = 0;
@@ -3370,6 +3396,7 @@
     diagBtn.type = 'button';
     diagBtn.id = 'avcx-diag';
     diagBtn.textContent = 'Diagnóstico de la fila';
+    diagBtn.hidden = !DEBUG; // solo con el Modo DEBUG
     diagBtn.title = 'Copia el diagnóstico de la última fila que tocaste (equivale a Shift+D en escritorio). Revísalo antes de compartirlo: puede incluir datos reales.';
     diagBtn.addEventListener('click', () => {
       if (lastRow && lastRow.isConnected) diagnose(lastRow);
@@ -3386,6 +3413,7 @@
       padding:4px 8px;border:1px solid #999;border-radius:12px;background:#fff;color:#333;opacity:.65;cursor:pointer}
     #avcx-diag{position:fixed;left:12px;bottom:108px;z-index:99998;font:11px system-ui,sans-serif;
       padding:4px 8px;border:1px solid #999;border-radius:12px;background:#fff;color:#333;opacity:.65;cursor:pointer}
+    #avcx-diag[hidden]{display:none!important}
     #avcx-cat:hover,#avcx-ws:hover,#avcx-diag:hover{opacity:1}
     #avcx-panel{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font:13px system-ui,sans-serif}
     #avcx-panel .avcx-pbox{background:#fff;color:#222;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.4);width:min(780px,94vw);max-height:85vh;display:flex;flex-direction:column;gap:10px;padding:14px}
@@ -3804,7 +3832,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const ok = await copyText(JSON.stringify(shapeOf(j), null, 1));
       toast(ok ? 'Estructura copiada (sin valores). Pégala en el chat.' : 'No pude copiar al portapapeles.');
     });
-    bar.append(cp);
+    if (DEBUG) bar.append(cp); // 0.109: solo con el Modo DEBUG
     if (warns.length) bar.append(mk('span', 'avcx-print-warn', '⚠ ' + warns.join(' ')));
     const fr = mk('iframe', 'avcx-print-frame');
     fr.setAttribute('title', 'Vista imprimible del AVC');
@@ -4531,14 +4559,16 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   let t0;
   new MutationObserver(ms => {
     if (ms.every(m => tip.contains(m.target) || toastEl.contains(m.target) || bannerEl.contains(m.target) || (panel && panel.contains(m.target)) ||
-        (m.target.closest && m.target.closest('#avcx-deltoggle, #avcx-splittoggle, #avcx-notiftoggle, .avcx-filtbar, #avcx-nav, #avcx-split, .avcx-splitbar, #avcx-print, #avcx-ravc, #avcx-drop')))) return;
+        (m.target.closest && m.target.closest('#avcx-deltoggle, #avcx-splittoggle, #avcx-notiftoggle, #avcx-debugtoggle, .avcx-filtbar, #avcx-nav, #avcx-split, .avcx-splitbar, #avcx-print, #avcx-ravc, #avcx-drop')))) return;
     perf.mo++;
     clearTimeout(t0);
     t0 = setTimeout(enhance, 200); // htmx puede reemplazar la tabla (filtros, paginación)
   }).observe(document.body, { childList: true, subtree: true });
 
   enhance();
-  if (DEBUG) PW.avcx = { mem, candidates, targetsOf, extractAll, fieldsOf, loadRow, enhance, claaRS, fieldsFromWS, pollForNewRows };  // sin getWSToken/fetchAvcWS: unsafeWindow es visible para los scripts de la página y no deben poder pedir el token
+  const avcxTools = { mem, candidates, targetsOf, extractAll, fieldsOf, loadRow, enhance, claaRS, fieldsFromWS, pollForNewRows };
+  debugHook = () => { try { if (DEBUG) PW.avcx = avcxTools; else delete PW.avcx; } catch (_) { /* ignore */ } };
+  debugHook();  // sin getWSToken/fetchAvcWS: unsafeWindow es visible para los scripts de la página y no deben poder pedir el token
 
   /* ================= pdf.js 3.11.174 (Mozilla Foundation, Apache License 2.0) — INCRUSTADO ================= */
   // https://github.com/mozilla/pdf.js · build/pdf.worker.min.js y build/pdf.min.js de pdfjs-dist 3.11.174 sin cambios
