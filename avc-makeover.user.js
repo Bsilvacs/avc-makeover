@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.109
+// @version      0.110
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -77,6 +77,12 @@
   const DELETED_RE = /\beliminad[oa]s?\b/i;
   // ...o, opcionalmente, la fila coincide con este selector CSS (ej. 'tr.table-danger'). Vacío = solo el texto.
   const DELETED_ROW_SELECTOR = '';
+  // No presentados vencidos (0.110): el portal los deja para siempre en "Aviso de cruce no presentado". Se marcan en gris con "Vencido DD-MM" (la fecha de
+  // emisión va en el folio; vence 8 días después, p. ej. emitido el 13 = vigente hasta el 21) y la casilla "Ocultar No presentados vencidos" los oculta.
+  // Solo es visual (CSS) y local: no agrega peticiones; las filas ocultas no se consultan.
+  const EXPIRED_ON = true;             // false = no se marcan ni se agrega la casilla
+  const HIDE_EXPIRED_DEFAULT = true;   // cómo carga la casilla la primera vez (luego se recuerda lo último que elegiste)
+  const AVC_VALID_DAYS = 8;            // días después del de emisión en que vence (fecha_vigencia)
   // Fondo de la fila según la columna "Estatus". Solo es visual (CSS); no agrega peticiones.
   // El texto del estatus se compara sin acentos y sin distinguir mayúsculas. cls: ok = verde, bad = rojo, warn = amarillo.
   const STATUS_COLORS_ON = true;            // false = las filas quedan sin color
@@ -118,6 +124,7 @@
   const WATCH_KEEP_HOURS = 24;        // Cumplido: AVC de otras hojas que se muestran en la hoja 1 si llegaron en estas últimas horas
   const WATCH_MAX_PAGES = 5;          // hojas como máximo por cada estatus vigilado (20 AVC por hoja)
   const WATCH_WARN_DAYS = 9;          // No presentado: solo se vigilan los emitidos en estos últimos días (la fecha va en el folio). El AVC dura 7 días: el emitido el día 13 vence el 21 (fecha_vigencia del servicio); 9 días cubren hasta el final de ese día. Uno vencido sin presentar ya no cambia. Reconocimiento: todos, sin límite
+  const WATCH_WARN_IMPORT = true;     // 0.110: los No presentados VIGENTES de otras hojas se muestran en la hoja 1 (ya vienen en la vigilancia: sin peticiones extra)
   const WATCH_MAX_FETCH = 10;         // filas que se traen por folio en cada revisión como máximo (las demás, en la siguiente)
   const EXTRA_PAGES = 2;              // respaldo: hojas extra que se revisan si la vigilancia no se puede usar
   // Pestaña en segundo plano (0.104): el listado se sigue actualizando, más lento (cada HIDDEN_EVERY sondeos = cada minuto), para que la hora de cada cambio sea la real.
@@ -1099,7 +1106,7 @@
   const rowData = new WeakMap();
   function refreshAll() {
     document.querySelectorAll('tr[data-avcx]').forEach(row => {
-      if (hideDeleted && row.dataset.avcxDel) return; // los eliminados ocultos no se consultan
+      if (rowHidden(row)) return; // los eliminados y vencidos ocultos no se consultan
       const d = rowData.get(row);
       const folio = rowFolio(row);
       if (d) {
@@ -1396,6 +1403,10 @@
       const rule = STATUS_RULES.find(r => r.re.test(txt));
       if (rule) { if (row.dataset.avcxStatus !== rule.cls) row.dataset.avcxStatus = rule.cls; }
       else if (row.dataset.avcxStatus) delete row.dataset.avcxStatus;
+      // No presentado vencido (0.110): data-avcx-exp = fecha de vencimiento "DD-MM" (la muestra el CSS; no cambia el texto de la fila)
+      const ex = EXPIRED_ON && rule && rule.cls === 'warn' ? expiredOn(rowFolio(row)) : '';
+      if (ex) { if (row.dataset.avcxExp !== ex) row.dataset.avcxExp = ex; }
+      else if (row.dataset.avcxExp) delete row.dataset.avcxExp;
       // ícono del portal (la X roja fija) -> palomita / X / reloj según la regla; sin regla se restaura el original
       const ic = STATUS_ICONS_ON ? row.cells[i].querySelector('i') : null;
       if (ic) {
@@ -1429,6 +1440,9 @@
   let hideDeleted = HIDE_DELETED_ON && HIDE_DELETED_DEFAULT; // estado de la casilla "Ocultar AVC eliminados"
   let lastOkAt = Date.now();                                 // hora de la última actualización correcta del listado (al cargar la página cuenta como correcta)
   let delN = 0;                                              // cuántos AVC eliminados hay en el listado actual
+  let hideExpired = EXPIRED_ON && store.get('hidexp', HIDE_EXPIRED_DEFAULT ? '1' : '0') === '1'; // casilla "Ocultar No presentados vencidos" (persistente)
+  let expN = 0;                                              // cuántos No presentados vencidos hay en el listado actual
+  const rowHidden = r => !!((hideDeleted && r.dataset.avcxDel) || (hideExpired && r.dataset.avcxExp)); // filas ocultas por las casillas
 
   function findFilter(table) {
     let el = null;
@@ -1467,7 +1481,7 @@
     if (!FILTER_ACTIVE_ON || !el) return [];
     const out = [];
     el.querySelectorAll('input,select,textarea').forEach(f => {
-      if (f.closest('#avcx-deltoggle,#avcx-splittoggle,#avcx-notiftoggle,#avcx-debugtoggle')) return; // la casilla de este script no es un filtro del portal
+      if (f.closest('#avcx-deltoggle,#avcx-exptoggle,#avcx-splittoggle,#avcx-notiftoggle,#avcx-debugtoggle')) return; // la casilla de este script no es un filtro del portal
       const t = (f.type || '').toLowerCase();
       if (/^(hidden|submit|button|reset|image|file|radio)$/.test(t)) return;
       let v = '';
@@ -1495,7 +1509,8 @@
     return (open ? '▾' : '▸') + ' Filtros' + (open ? '' : ' (clic para mostrar)') +
       (act.length ? ' · Activos: ' + act.map(a => (a.k ? a.k + ': ' : '') + cut(a.v)).join('; ') : '') +
       (AUTO_REFRESH_SEC > 0 ? ' · Actualizado ' + fmtHora(lastOkAt) : '') +
-      (hideDeleted && delN ? ` · ${delN} eliminado${delN === 1 ? '' : 's'} oculto${delN === 1 ? '' : 's'}` : '');
+      (hideDeleted && delN ? ` · ${delN} eliminado${delN === 1 ? '' : 's'} oculto${delN === 1 ? '' : 's'}` : '') +
+      (hideExpired && expN ? ` · ${expN} vencido${expN === 1 ? '' : 's'} oculto${expN === 1 ? '' : 's'}` : '');
   };
   const barTitle = el => (filterSnap.get(el) || []).map(a => (a.k ? a.k + ': ' : '') + a.v).join('\n');
 
@@ -1574,6 +1589,13 @@
     const sp = document.querySelector('#avcx-deltoggle span');
     const txt = `Ocultar AVC eliminados${delN ? ` (${delN} en esta lista)` : ''}`;
     if (sp && sp.textContent !== txt) sp.textContent = txt; // solo si cambió: evita disparar el MutationObserver en bucle
+    if (EXPIRED_ON) {
+      expN = all.reduce((n, t) => n + t.querySelectorAll('tbody tr[data-avcx-exp]').length, 0);
+      all.forEach(t => t.classList.toggle('avcx-hideexp', hideExpired));
+      const se = document.querySelector('#avcx-exptoggle span');
+      const te = `Ocultar No presentados vencidos${expN ? ` (${expN} en esta lista)` : ''}`;
+      if (se && se.textContent !== te) se.textContent = te;
+    }
     refreshBars();
   }
 
@@ -1596,6 +1618,24 @@
       const f = findFilter(table);
       if (f) f.appendChild(lab);                          // dentro de la sección de filtros
       else table.parentNode.insertBefore(lab, table);     // respaldo: arriba de la tabla si no se detectó el bloque de filtros
+    }
+    const delLab = document.getElementById('avcx-deltoggle');
+    if (EXPIRED_ON && delLab && !document.getElementById('avcx-exptoggle')) { // 0.110: justo debajo de "Ocultar AVC eliminados"
+      const lab = document.createElement('label');
+      lab.id = 'avcx-exptoggle';
+      lab.title = 'No presentados cuya vigencia ya terminó (la fecha va en el folio). Solo es visual: no se borra nada.';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = hideExpired;
+      const sp = document.createElement('span');
+      cb.addEventListener('change', () => {
+        hideExpired = cb.checked;
+        try { store.set('hidexp', hideExpired ? '1' : '0'); } catch (_) { /* ignore */ }
+        const t = findTable();
+        if (t) { updateDelCount(t); updateSplit(t); scheduleTS(t); }
+      });
+      lab.append(cb, sp);
+      delLab.after(lab);
     }
     updateDelCount(table);
   }
@@ -1655,6 +1695,7 @@
       tb.style.removeProperty('display');
       tb.classList.add('avcx-table', 'avcx-split-tbl');
       tb.classList.toggle('avcx-hidedel', hideDeleted);
+      tb.classList.toggle('avcx-hideexp', hideExpired);
       const thead = mk('thead');
       if (table.tHead) thead.className = table.tHead.className;
       const tbody = mk('tbody');
@@ -1711,7 +1752,7 @@
   function layoutSplitGroup(g) {
     const w = g.wrap;
     if (w.style.display === 'none') return; // oculta o vacía: se mide al mostrarla
-    const rows = [...g.tbody.rows].filter(r => !(hideDeleted && r.dataset.avcxDel));
+    const rows = [...g.tbody.rows].filter(r => !rowHidden(r));
     const head = g.thead.offsetHeight;
     if (!head || !rows.length) return; // sin medidas (pestaña o contenedor oculto): el ResizeObserver vuelve a llamar cuando haya
     let v = '';
@@ -1935,8 +1976,16 @@
     row.dataset.avcxOrdReq = '1'; // una sola vez por fila: si falla, la reintenta fill() cuando la fila se ve (y entonces la hora queda guardada también)
     loadWS(f).then(d => { if (d && d.ts) { ordSet(f, d.ts, 'w', cls); scheduleSortTs(); } }).catch(() => { /* ya hay reintento por fila visible */ });
   }
+  const folioSeq = r => (rowFolio(r) || '').slice(-11); // consecutivo del folio: crece con la emisión
   function sortRecent() {
     splitGroups.forEach(g => {
+      if (g.cls === 'warn' && WATCH_WARN_IMPORT) { // 0.110: con No presentados de otras hojas, la tabla va del más nuevo al más viejo (como el portal)
+        const rows = [...g.tbody.rows];
+        if (rows.length < 2 || !rows.some(r => r.dataset.avcxExtra)) return;
+        const sorted = rows.map((r, i) => ({ r, i, k: folioSeq(r) })).sort((a, b) => (a.k < b.k ? 1 : a.k > b.k ? -1 : a.i - b.i)).map(x => x.r);
+        if (!sorted.every((r, i) => r === rows[i])) sorted.forEach(r => g.tbody.appendChild(r));
+        return;
+      }
       if (!ORDER_GROUPS.includes(g.cls)) return;
       const rows = [...g.tbody.rows];
       rows.forEach(r => { if (!ordKey(r, g.cls) && !r.dataset.avcxOrdReq) ordFetch(r, g.cls); });
@@ -1963,7 +2012,7 @@
       return;
     }
     if (splitBox.style.display !== '') splitBox.style.display = '';
-    const visible = r => !(hideDeleted && r.dataset.avcxDel);
+    const visible = r => !rowHidden(r);
     let grouped = 0;
     splitGroups.forEach(g => {
       const rows = [...g.tbody.rows];
@@ -2427,6 +2476,16 @@
   }
   // Fecha de emisión que trae el folio: AVC + aduana (2) + DDMMAAAA + consecutivo -> ms (0 si no se entiende)
   const folioDate = f => { const m = /^AVC\d{2}(\d{2})(\d{2})(\d{4})/.exec(f || ''); return m ? Date.UTC(+m[3], +m[2] - 1, +m[1]) : 0; };
+  // Vencido (0.110): si hoy (fecha local) ya pasó la vigencia (emisión + AVC_VALID_DAYS), devuelve esa fecha como "DD-MM"; si sigue vigente o no se entiende, ''
+  function expiredOn(f) {
+    const d = folioDate(f);
+    if (!d) return '';
+    const n = new Date();
+    const v = d + AVC_VALID_DAYS * 86400e3;
+    if (Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()) <= v) return '';
+    const x = new Date(v);
+    return String(x.getUTCDate()).padStart(2, '0') + '-' + String(x.getUTCMonth() + 1).padStart(2, '0');
+  }
   const onPage1 = () => (new URL(location.href).searchParams.get('page') || '1') === '1';
   // Lee una hoja: [{ f, r, cls }] y el total de hojas ("Página 1 de 52"); null si no trae listado
   async function readList(url) {
@@ -2538,6 +2597,12 @@
       const m = mine.get(x.f);
       if (!m || m.dataset.avcxExtra) imp.push(x);
     });
+    // 2b) No presentados vigentes que no están en esta hoja (0.110): ya vienen en la lista filtrada, así que no cuestan peticiones; se muestran en la hoja 1
+    if (WATCH_WARN_IMPORT) cur.forEach(x => {
+      if (x.cls !== 'warn' || expiredOn(x.f)) return;
+      const m = mine.get(x.f);
+      if (!m || m.dataset.avcxExtra) imp.push(x);
+    });
     // 3) salieron de los pendientes: se trae su fila por folio (las que no quepan en esta revisión se quedan para la siguiente)
     const left = Object.keys(prev.f).filter(f => !cur.has(f) && !tooOld(f, prev.f[f])); // el No presentado que solo venció no cambió: no se consulta
     const keep = {};
@@ -2576,6 +2641,7 @@
       if (!r.dataset.avcxExtra || imp.some(x => x.f === f)) return;
       const o = ordRec[f];
       if (r.dataset.avcxStatus === 'ok' && !(o && o[0] >= limit)) drop.push(f);
+      else if (r.dataset.avcxStatus === 'warn') drop.push(f); // No presentado de otra hoja que ya venció o ya no está pendiente (0.110)
     });
     if (waits.length) await Promise.all(waits);
     // la próxima revisión compara contra esto
@@ -2704,6 +2770,10 @@
     .avcx-table tr[data-avcx-status="bad"]:hover>td{background-color:#ef9a9a!important}
     .avcx-table tr[data-avcx-status="warn"]:hover>td{background-color:#fff176!important}
     .avcx-table.avcx-hidedel tr[data-avcx-del]{display:none!important}
+    .avcx-table.avcx-hideexp tr[data-avcx-exp]{display:none!important}
+    .avcx-table tr[data-avcx-exp]>td,.avcx-table tr[data-avcx-exp]:hover>td{background-color:#eeeeee!important;color:#888!important}
+    .avcx-table tr[data-avcx-extra][data-avcx-status="warn"] .avcx-stcell::after{content:" · de otra hoja";font-size:.85em;color:#8a6d00}
+    .avcx-table tr[data-avcx-exp] .avcx-stcell::after{content:" · Vencido " attr(data-avcx-exp);font-size:.85em;color:#666}
     .avcx-splitbar{display:block;width:100%;box-sizing:border-box;text-align:left;cursor:pointer;margin:14px 0 6px;padding:6px 12px;border:0;border-radius:4px;border-left:6px solid #999;background:#f3f3f3;color:#222;font:600 14px system-ui,sans-serif}
     .avcx-splitbar:hover{filter:brightness(.96)}
     .avcx-sb-ok{border-left-color:#2e7d32;background:#c8e6c9}
@@ -2716,8 +2786,8 @@
     .avcx-fol-full{display:none!important}
     .avcx-fol-short{cursor:pointer}
     .avcx-fol-short:hover{text-decoration:underline dotted}
-    #avcx-deltoggle,#avcx-splittoggle,#avcx-notiftoggle,#avcx-debugtoggle{display:flex;align-items:center;gap:6px;margin:8px 0 4px;font:13px system-ui,sans-serif;cursor:pointer;user-select:none}
-    #avcx-deltoggle input,#avcx-splittoggle input,#avcx-notiftoggle input,#avcx-debugtoggle input{margin:0;cursor:pointer}
+    #avcx-deltoggle,#avcx-exptoggle,#avcx-splittoggle,#avcx-notiftoggle,#avcx-debugtoggle{display:flex;align-items:center;gap:6px;margin:8px 0 4px;font:13px system-ui,sans-serif;cursor:pointer;user-select:none}
+    #avcx-deltoggle input,#avcx-exptoggle input,#avcx-splittoggle input,#avcx-notiftoggle input,#avcx-debugtoggle input{margin:0;cursor:pointer}
     .avcx-filtbar{display:block;width:100%;text-align:left;margin:0 0 8px;padding:6px 10px;border:1px solid #bbb;border-radius:4px;
       background:#f3f3f3;color:#333;font:13px system-ui,sans-serif;cursor:pointer}
     .avcx-filtbar:hover{background:#e6e6e6}
@@ -2752,8 +2822,8 @@
     html.avcx-touch #avcx-toast{left:8px;right:8px;max-width:none}
     html.avcx-touch #avcx-banner{font-size:12px;padding:6px 10px}
     html.avcx-touch .avcx-filtbar{padding:10px 12px;font-size:14px}
-    html.avcx-touch #avcx-deltoggle,html.avcx-touch #avcx-splittoggle,html.avcx-touch #avcx-notiftoggle,html.avcx-touch #avcx-debugtoggle{padding:6px 0;font-size:15px}
-    html.avcx-touch #avcx-deltoggle input,html.avcx-touch #avcx-splittoggle input,html.avcx-touch #avcx-notiftoggle input,html.avcx-touch #avcx-debugtoggle input{width:20px;height:20px}
+    html.avcx-touch #avcx-deltoggle,html.avcx-touch #avcx-exptoggle,html.avcx-touch #avcx-splittoggle,html.avcx-touch #avcx-notiftoggle,html.avcx-touch #avcx-debugtoggle{padding:6px 0;font-size:15px}
+    html.avcx-touch #avcx-deltoggle input,html.avcx-touch #avcx-exptoggle input,html.avcx-touch #avcx-splittoggle input,html.avcx-touch #avcx-notiftoggle input,html.avcx-touch #avcx-debugtoggle input{width:20px;height:20px}
   `;
   document.head.appendChild(style);
   if (IS_TOUCH) document.documentElement.classList.add('avcx-touch');
@@ -4559,7 +4629,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   let t0;
   new MutationObserver(ms => {
     if (ms.every(m => tip.contains(m.target) || toastEl.contains(m.target) || bannerEl.contains(m.target) || (panel && panel.contains(m.target)) ||
-        (m.target.closest && m.target.closest('#avcx-deltoggle, #avcx-splittoggle, #avcx-notiftoggle, #avcx-debugtoggle, .avcx-filtbar, #avcx-nav, #avcx-split, .avcx-splitbar, #avcx-print, #avcx-ravc, #avcx-drop')))) return;
+        (m.target.closest && m.target.closest('#avcx-deltoggle, #avcx-exptoggle, #avcx-splittoggle, #avcx-notiftoggle, #avcx-debugtoggle, .avcx-filtbar, #avcx-nav, #avcx-split, .avcx-splitbar, #avcx-print, #avcx-ravc, #avcx-drop')))) return;
     perf.mo++;
     clearTimeout(t0);
     t0 = setTimeout(enhance, 200); // htmx puede reemplazar la tabla (filtros, paginación)
