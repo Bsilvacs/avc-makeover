@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.110
+// @version      0.112
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -124,6 +124,7 @@
   const WATCH_KEEP_HOURS = 24;        // Cumplido: AVC de otras hojas que se muestran en la hoja 1 si llegaron en estas últimas horas
   const WATCH_MAX_PAGES = 5;          // hojas como máximo por cada estatus vigilado (20 AVC por hoja)
   const WATCH_WARN_DAYS = 9;          // No presentado: solo se vigilan los emitidos en estos últimos días (la fecha va en el folio). El AVC dura 7 días: el emitido el día 13 vence el 21 (fecha_vigencia del servicio); 9 días cubren hasta el final de ese día. Uno vencido sin presentar ya no cambia. Reconocimiento: todos, sin límite
+  const TS_LABEL_ON = true;           // 0.112: fecha y hora de llegada en texto pequeño bajo el estatus (Reconocimiento y Cumplido); "≈" = aproximada
   const WATCH_WARN_IMPORT = true;     // 0.110: los No presentados VIGENTES de otras hojas se muestran en la hoja 1 (ya vienen en la vigilancia: sin peticiones extra)
   const WATCH_MAX_FETCH = 10;         // filas que se traen por folio en cada revisión como máximo (las demás, en la siguiente)
   const EXTRA_PAGES = 2;              // respaldo: hojas extra que se revisan si la vigilancia no se puede usar
@@ -1405,8 +1406,9 @@
       else if (row.dataset.avcxStatus) delete row.dataset.avcxStatus;
       // No presentado vencido (0.110): data-avcx-exp = fecha de vencimiento "DD-MM" (la muestra el CSS; no cambia el texto de la fila)
       const ex = EXPIRED_ON && rule && rule.cls === 'warn' ? expiredOn(rowFolio(row)) : '';
-      if (ex) { if (row.dataset.avcxExp !== ex) row.dataset.avcxExp = ex; }
-      else if (row.dataset.avcxExp) delete row.dataset.avcxExp;
+      const sc = row.cells[i];
+      if (ex) { if (row.dataset.avcxExp !== ex) row.dataset.avcxExp = ex; if (sc.dataset.avcxExp !== ex) sc.dataset.avcxExp = ex; } // en la celda también: el CSS la lee con attr()
+      else { if (row.dataset.avcxExp) delete row.dataset.avcxExp; if (sc.dataset.avcxExp) delete sc.dataset.avcxExp; }
       // ícono del portal (la X roja fija) -> palomita / X / reloj según la regla; sin regla se restaura el original
       const ic = STATUS_ICONS_ON ? row.cells[i].querySelector('i') : null;
       if (ic) {
@@ -1977,6 +1979,21 @@
     loadWS(f).then(d => { if (d && d.ts) { ordSet(f, d.ts, 'w', cls); scheduleSortTs(); } }).catch(() => { /* ya hay reintento por fila visible */ });
   }
   const folioSeq = r => (rowFolio(r) || '').slice(-11); // consecutivo del folio: crece con la emisión
+  // Fecha y hora de llegada bajo el estatus (0.112), en Reconocimiento y Cumplido: la misma hora del orden por llegada (ordRec). "≈" = aproximada:
+  // hora del servicio web (momento_cruce) en un Desaduanado (pasó por reconocimiento), que es la del inicio de la revisión. Solo visual (CSS attr), sin peticiones.
+  const pad2 = n => String(n).padStart(2, '0');
+  function setTsLabel(r, cls) {
+    const c = r.querySelector('.avcx-stcell');
+    if (!c) return;
+    const o = ordRec[rowFolio(r)];
+    let t = '';
+    if (TS_LABEL_ON && o && o[2] === cls && o[0]) {
+      const d = new Date(o[0]);
+      const aprox = o[1] === 'w' && cls === 'ok' && !/libre/i.test(c.textContent);
+      t = (aprox ? '≈ ' : '') + pad2(d.getDate()) + '-' + pad2(d.getMonth() + 1) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    }
+    if ((c.dataset.avcxTs || '') !== t) { if (t) c.dataset.avcxTs = t; else delete c.dataset.avcxTs; }
+  }
   function sortRecent() {
     splitGroups.forEach(g => {
       if (g.cls === 'warn' && WATCH_WARN_IMPORT) { // 0.110: con No presentados de otras hojas, la tabla va del más nuevo al más viejo (como el portal)
@@ -1988,7 +2005,7 @@
       }
       if (!ORDER_GROUPS.includes(g.cls)) return;
       const rows = [...g.tbody.rows];
-      rows.forEach(r => { if (!ordKey(r, g.cls) && !r.dataset.avcxOrdReq) ordFetch(r, g.cls); });
+      rows.forEach(r => { if (!ordKey(r, g.cls) && !r.dataset.avcxOrdReq) ordFetch(r, g.cls); setTsLabel(r, g.cls); });
       if (rows.length < 2) return;
       const sorted = rows.map((r, i) => ({ r, i, k: ordKey(r, g.cls) })).sort((a, b) => b.k - a.k || a.i - b.i).map(x => x.r);
       if (sorted.every((r, i) => r === rows[i])) return; // ya están en orden: no se toca el DOM
@@ -2603,6 +2620,8 @@
       const m = mine.get(x.f);
       if (!m || m.dataset.avcxExtra) imp.push(x);
     });
+    // 0.111: lo que ya se tiene (Reconocimiento y No presentados vigentes) se muestra ya, sin esperar las consultas por folio de los pasos 3 y 4
+    if (imp.length) importRows(imp.slice(), []);
     // 3) salieron de los pendientes: se trae su fila por folio (las que no quepan en esta revisión se quedan para la siguiente)
     const left = Object.keys(prev.f).filter(f => !cur.has(f) && !tooOld(f, prev.f[f])); // el No presentado que solo venció no cambió: no se consulta
     const keep = {};
@@ -2774,6 +2793,7 @@
     .avcx-table tr[data-avcx-exp]>td,.avcx-table tr[data-avcx-exp]:hover>td{background-color:#eeeeee!important;color:#888!important}
     .avcx-table tr[data-avcx-extra][data-avcx-status="warn"] .avcx-stcell::after{content:" · de otra hoja";font-size:.85em;color:#8a6d00}
     .avcx-table tr[data-avcx-exp] .avcx-stcell::after{content:" · Vencido " attr(data-avcx-exp);font-size:.85em;color:#666}
+    .avcx-table tr[data-avcx-status="ok"] .avcx-stcell[data-avcx-ts]::after,.avcx-table tr[data-avcx-status="bad"] .avcx-stcell[data-avcx-ts]::after{content:attr(data-avcx-ts);display:block;font-size:11px;line-height:1.1;margin-top:1px;color:#555;text-align:center}
     .avcx-splitbar{display:block;width:100%;box-sizing:border-box;text-align:left;cursor:pointer;margin:14px 0 6px;padding:6px 12px;border:0;border-radius:4px;border-left:6px solid #999;background:#f3f3f3;color:#222;font:600 14px system-ui,sans-serif}
     .avcx-splitbar:hover{filter:brightness(.96)}
     .avcx-sb-ok{border-left-color:#2e7d32;background:#c8e6c9}
@@ -4636,6 +4656,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }).observe(document.body, { childList: true, subtree: true });
 
   enhance();
+  // 0.111: la primera vigilancia corre al cargar (antes esperaba al primer sondeo, 15 s o más); la siguiente, un minuto después
+  if (AUTO_REFRESH_SEC > 0 && WATCH_ON) { pollN = 1; watchTick(); }
   const avcxTools = { mem, candidates, targetsOf, extractAll, fieldsOf, loadRow, enhance, claaRS, fieldsFromWS, pollForNewRows };
   debugHook = () => { try { if (DEBUG) PW.avcx = avcxTools; else delete PW.avcx; } catch (_) { /* ignore */ } };
   debugHook();  // sin getWSToken/fetchAvcWS: unsafeWindow es visible para los scripts de la página y no deben poder pedir el token
