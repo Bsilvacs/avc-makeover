@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.115
+// @version      0.117
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -170,6 +170,38 @@
   };
   // Además se aprenden solos del listado (el portal escribe "24 - NUEVO LAREDO, TAMPS.", igual que el acuse): así se cubren todas las aduanas con las que operas.
   // El campo Aduana del AVC lleva solo los 2 dígitos y el nombre oficial (la sección va únicamente en el número de pedimento), por eso la clave es de 2 dígitos.
+  // Zona horaria de la aduana de despacho (0.117): las horas se leen y se muestran en la hora local de la aduana (la clave va en el folio: AVC + 2 dígitos).
+  // Por clave conocida; si no, por el estado del nombre oficial (catálogo o aprendido del listado); si no, la del centro (CDMX).
+  const ADUANA_TZ = { '24': 'America/Matamoros', '47': 'America/Mexico_City', '52': 'America/Monterrey', '53': 'America/Cancun', '85': 'America/Mexico_City' };
+  function aduanaTz(c) {
+    const k = String(c || '').slice(0, 2);
+    if (ADUANA_TZ[k]) return ADUANA_TZ[k];
+    const n = String(ADU_LEARN[k] || ADUANA_NOMBRES[k] || '').toUpperCase();
+    if (/Q\.?\s*ROO/.test(n)) return 'America/Cancun';
+    if (/B\.?\s*C\.?\s*S\b|\bSIN\.|\bNAY\./.test(n)) return 'America/Mazatlan';
+    if (/\bB\.?\s*C\b/.test(n)) return 'America/Tijuana';
+    if (/\bSON\./.test(n)) return 'America/Hermosillo';
+    if (/JUAREZ/.test(n) && /CHIH/.test(n)) return 'America/Ciudad_Juarez';
+    if (/OJINAGA/.test(n)) return 'America/Ojinaga';
+    if (/NUEVO LAREDO|REYNOSA|MATAMOROS|PIEDRAS NEGRAS|ACU[NÑ]A|COLOMBIA|MIGUEL ALEM[AÁ]N|CAMARGO/.test(n)) return 'America/Matamoros'; // frontera con horario de verano de EUA
+    return 'America/Mexico_City';
+  }
+  const folioTz = f => { const m = /^AVC(\d{2})/.exec(f || ''); return m ? aduanaTz(m[1]) : 'America/Mexico_City'; };
+  const tzFmts = {};
+  function tzParts(tz, ms) { // campos de fecha y hora de ms en esa zona
+    let f = tzFmts[tz];
+    if (!f) {
+      try { f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+      catch (_) { f = new Intl.DateTimeFormat('en-US', { hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+      tzFmts[tz] = f;
+    }
+    const o = {};
+    f.formatToParts(new Date(ms)).forEach(p => { if (p.type !== 'literal') o[p.type] = +p.value; });
+    return o;
+  }
+  const tzOffset = (tz, ms) => { const o = tzParts(tz, ms); return Date.UTC(o.year, o.month - 1, o.day, o.hour % 24, o.minute, o.second) - Math.floor(ms / 1000) * 1000; };
+  // hora de pared (como UTC) -> instante real en esa zona
+  const wallToMs = (wall, tz) => { let ms = wall - tzOffset(tz, wall); ms = wall - tzOffset(tz, ms); return ms; };
   const aduanaNombre = c => { const k = String(c || '').slice(0, 2), n = ADU_LEARN[k] || ADUANA_NOMBRES[k]; return n ? `${k} - ${n}` : k; };
   // Folio: "AVC530101202600000000123" = AVC + aduana (2) + día y mes (4) + año (4) + consecutivo (11).
   // Con FOLIO_SHORT_ON la columna Folio muestra solo el consecutivo ("00000000123"); al pasar el mouse se ve el folio completo
@@ -898,15 +930,20 @@
   // (p. ej. 6000003, 6000004, 6000005, 6000001, 6000002). Cada pedimento viaja con SU RFC: se ordenan los registros completos y de ahí salen las dos listas, así el RFC n sigue siendo el del pedimento n.
   // Los registros del nivel principal traen pedimento y consecutivo pero no RFC; el RFC sale de peticiones[] y se une por pedimento + consecutivo. Solo cambia el ORDEN: los datos son los mismos de antes.
   // Fecha y hora del servicio ("14-11-2026 09:26:37", también "14-11-26 9:26:37" o "2026-11-14T09:26:37") -> milisegundos para comparar (0 si no se entiende)
-  function fechaTs(s) {
+  function fechaTs(s, tz) {
     const t = String(s || '').trim();
     let m = t.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
-    if (m) return Date.UTC(m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
-    m = t.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
-    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)) : 0;
+    // 0.117: la hora del servicio es la hora LOCAL de la aduana (verificado en Cancún: 09:26 del servicio = 09:27 de la alerta del SAAI); se convierte con su zona
+    let w = 0;
+    if (m) w = Date.UTC(m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+    else {
+      m = t.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+      if (m) w = Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+    }
+    return w ? wallToMs(w, tz || 'America/Mexico_City') : 0;
   }
 
-  function fieldsFromWS(j) {
+  function fieldsFromWS(j, folio) {
     const recs = new Map(), extra = []; // recs: pedimento|consecutivo -> { ped, cons, rfcs[] }; extra: RFC que vienen sin pedimento
     let inicio = inicioFrom(j.documentos_aduanales);
     const take = p => {
@@ -934,11 +971,11 @@
       const rs = uniq(sorted.filter(r => r.ped === pd && r.rem && r.cons > 0).map(r => String(r.cons)));
       return rs.length ? pd + ' R' + rs.join('-') : pd;
     }).join(', ');
-    return { ped: pedTxt, rfc: uniq([...sorted.flatMap(r => r.rfcs), ...extra]).join(', '), inicio, ts: fechaTs(j.momento_cruce) }; // ts (0.102): momento_cruce = fecha y hora del PRIMER estatus del AVC (ver sortRecent)
+    return { ped: pedTxt, rfc: uniq([...sorted.flatMap(r => r.rfcs), ...extra]).join(', '), inicio, ts: fechaTs(j.momento_cruce, folioTz(folio || j.numero_avc || j.folio || '')) }; // ts (0.102): momento_cruce = fecha y hora del PRIMER estatus del AVC (ver sortRecent)
   }
 
   const wsMem = new Map();
-  const WSKEY = 'avcxws7:'; // 0.113: Pedimento(s) trae las remesas (R1-2-3); antes avcxws6 // prefijo nuevo (0.102: el resultado trae ts); antes avcxws5 (0.84): los resultados cacheados ahora salen ordenados por pedimento (0.40: incluyen el AVC de inicio de tránsito)
+  const WSKEY = 'avcxws9:'; // 0.117: ts en la hora de la aduana; antes avcxws7/8 // 0.113: Pedimento(s) trae las remesas (R1-2-3); antes avcxws6 // prefijo nuevo (0.102: el resultado trae ts); antes avcxws5 (0.84): los resultados cacheados ahora salen ordenados por pedimento (0.40: incluyen el AVC de inicio de tránsito)
   function loadWS(folio) {
     if (wsMem.has(folio)) return wsMem.get(folio);
     const p = (async () => {
@@ -950,7 +987,7 @@
         }
       } catch (_) { /* ignore */ }
       const j = await queue(() => fetchAvcWS(folio));
-      const d = fieldsFromWS(j);
+      const d = fieldsFromWS(j, folio);
       // un resultado vacío no se guarda en la caché: así, si el script aprende a leer ese tipo de AVC, no queda "—" pegado 30 min
       if (d.ped || d.rfc) { try { sessionStorage.setItem(WSKEY + folio, JSON.stringify({ t: Date.now(), d })); } catch (_) { /* ignore */ } }
       return d;
@@ -1967,6 +2004,17 @@
   // Las filas sin hora quedan al final, en el orden del portal. Se acomoda en un cuadro (requestAnimationFrame), sin temporizadores. Solo es visual.
   let ordRec = {};
   try { ordRec = JSON.parse(store.get('ordrec', '{}')) || {}; } catch (_) { ordRec = {}; }
+  // 0.117: las horas 'w' (momento_cruce) guardadas antes se leyeron como UTC (o, con la 0.116, como hora del navegador); se corrigen una sola vez a la hora de su aduana
+  if (store.get('ordtz', '') !== '2') {
+    const v116 = store.get('ordtz', '') === '1';
+    Object.entries(ordRec).forEach(([f, o]) => {
+      if (!o || o[1] !== 'w' || !o[0]) return;
+      let wall = o[0];
+      if (v116) { const d = new Date(o[0]); wall = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()); }
+      o[0] = wallToMs(wall, folioTz(f));
+    });
+    try { store.set('ordrec', JSON.stringify(ordRec)); store.set('ordtz', '2'); } catch (_) { /* ignore */ }
+  }
   const ordPrev = new Map(); // folio -> tabla en que estaba la fila que el sondeo reemplaza (para no anotar como llegada un cambio de otro dato)
   const ordDirty = new Set();
   let sortRaf = 0;
@@ -2005,9 +2053,9 @@
     const o = ordRec[rowFolio(r)];
     let t = '';
     if (TS_LABEL_ON && o && o[2] === cls && o[0]) {
-      const d = new Date(o[0]);
+      const d = tzParts(folioTz(rowFolio(r)), o[0]); // 0.117: en la hora local de la aduana de despacho
       const aprox = o[1] === 'w' && cls === 'ok' && !/libre/i.test(c.textContent);
-      t = (aprox ? '≈ ' : '') + pad2(d.getDate()) + '-' + pad2(d.getMonth() + 1) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+      t = (aprox ? '≈ ' : '') + pad2(d.day) + '-' + pad2(d.month) + ' ' + pad2(d.hour % 24) + ':' + pad2(d.minute);
     }
     // 0.113: en Reconocimiento, cuánto lleva (la hora de entrada es exacta) y marca fuerte desde RECON_LONG_H horas
     let long = false;
