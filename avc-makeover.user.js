@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.123
+// @version      0.125
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -2359,6 +2359,16 @@
   // Sin menú lateral (botón ☰ en táctil) el botón se queda donde está.
   // Eficiencia: ya movido, sale de inmediato; si no aparece, se deja de buscar tras 12 pasadas (páginas de /avc/ sin el botón;
   // en /show/ y /search_avc/ esto no corre: ahí solo va pageHelper).
+  // 0.124: oculta el elemento y sus contenedores mientras solo contengan esos textos (sin tabla, formulario ni campos). Así no queda el hueco
+  // de las columnas del portal (col-6 con margin-bottom:30px y dos <br> del botón; col-6 del título <h3>; y la fila que las une).
+  const bareTxt = s => (s || '').replace(/\s+/g, '');
+  function hideUp(el, texts) {
+    let t = el;
+    for (let p = el.parentElement; p && p !== document.body && !p.querySelector('table,form,input,select,textarea') &&
+      texts.includes(bareTxt(p.textContent)); p = p.parentElement) t = p;
+    t.style.setProperty('display', 'none', 'important');
+    return t;
+  }
   let genItem = null, genBtn = null, genTries = 0;
   function moveGenBtn() {
     if (genItem && genItem.isConnected && genBtn && genBtn.isConnected) return;
@@ -2378,14 +2388,14 @@
     const items = [...menu.querySelectorAll(':scope > .avcx-nav-item')];
     const after = items.find(i => /consultar avc/i.test(i.textContent)) || items[items.length - 1];
     if (after) after.after(it); else menu.prepend(it);
-    b.style.setProperty('display', 'none', 'important');
+    hideUp(b, [bareTxt(b.textContent)]); // el botón y su columna (con sus <br> y margen)
     genItem = it; genBtn = b; genTries = 0;
     if (DEBUG) console.log('[AVCx] botón Generar aviso de cruce: movido al menú del logo' + (after ? ' (después de "' + clean(after.textContent) + '")' : ''));
   }
 
   // 0.122: se oculta el título "Avisos de cruce" de arriba del listado para que se vea más limpio. Se busca entre los encabezados (h1-h6, .card-title,
-  // .page-title) con ese texto exacto; si su contenedor solo trae ese título (y el botón rojo ya movido al menú), se oculta el contenedor para no dejar
-  // el hueco. Nunca se oculta un contenedor con tabla, formulario o campos. Se busca en cada enhance hasta encontrarlo (sin temporizadores).
+  // .page-title) con ese texto exacto; se ocultan también sus contenedores que solo traen ese título (y el botón rojo ya movido al menú) para no dejar
+  // el hueco (ver hideUp). Nunca se oculta un contenedor con tabla, formulario o campos. Se busca en cada enhance hasta encontrarlo (sin temporizadores).
   let titleEl = null, titleTries = 0; // igual que el botón: tras 12 pasadas sin encontrarlo se deja de buscar
   function hidePageTitle() {
     if ((titleEl && titleEl.isConnected) || titleTries >= 12) return;
@@ -2393,11 +2403,8 @@
     const h = [...document.querySelectorAll('h1,h2,h3,h4,h5,h6,.card-title,.page-title')]
       .find(e => /^avisos? de cruces?$/i.test(clean(e.textContent)) && !e.closest('#avcx-nav,#avcx-panel,#avcx-print,table'));
     if (!h) return;
-    const ok = (clean(h.textContent) + (genBtn ? clean(genBtn.textContent) : '')).replace(/\s/g, '');
-    let t = h;
-    for (let p = h.parentElement; p && p !== document.body && !p.querySelector('table,form,input,select,textarea') &&
-      clean(p.textContent).replace(/\s/g, '') === ok; p = p.parentElement) t = p;
-    t.style.setProperty('display', 'none', 'important');
+    const ht = bareTxt(h.textContent), bt = genBtn ? bareTxt(genBtn.textContent) : '';
+    const t = hideUp(h, bt ? [ht, ht + bt, bt + ht] : [ht]); // su columna y, si solo trae título y botón, la fila completa
     titleEl = t; titleTries = 0;
     if (DEBUG) console.log('[AVCx] título "Avisos de cruce" oculto:', t.tagName + (t.id ? '#' + t.id : '') + (typeof t.className === 'string' && t.className.trim() ? '.' + t.className.trim().split(/\s+/).join('.') : ''));
   }
@@ -3015,6 +3022,9 @@
     #avcx-nav .avcx-nav-item:hover{background:#f3e9eb}
     #avcx-nav .avcx-nav-item.on{font-weight:700}
     #avcx-nav .avcx-nav-gen>i,#avcx-nav .avcx-nav-gen>svg{color:inherit!important;margin:0!important}
+    /* 0.125: paginación del portal centrada en cualquier ancho (el portal solo la centra desde 992 px: d-lg-flex justify-content-lg-center) */
+    nav:has(> ul.pagination){display:flex!important;justify-content:center!important;width:100%;margin-left:0!important;margin-right:0!important}
+    nav:has(> ul.pagination)>ul.pagination{margin-left:auto;margin-right:auto}
     #avcx-nav .avcx-nav-tools{border-top:1px solid #ddd;margin-top:6px;padding-top:6px}
     #avcx-nav .avcx-nav-tools>*{position:static!important;display:block;box-sizing:border-box;width:calc(100% - 24px);margin:6px 12px 0;opacity:1;text-align:left}
     #avcx-nav .avcx-nav-tools>*{-webkit-appearance:none!important;appearance:none!important;background:#fff!important;background-image:none!important;
