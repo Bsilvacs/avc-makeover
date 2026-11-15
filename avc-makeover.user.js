@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.120
+// @version      0.121
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -1128,7 +1128,7 @@
       if (over > 2) {
         const small = over <= FIT_TOLERANCE_PX;
         // 'clip' y no 'hidden': con 'hidden' el navegador vuelve 'auto' el eje vertical y el contenedor (#content del portal) recortaba por arriba
-        // el botón rojo "Generar aviso de cruce"; 'clip' recorta solo en horizontal y deja el vertical en 'visible'. (Causa raíz de ese recorte.)
+        // lo que sobresale (antes, el botón rojo "Generar aviso de cruce"); 'clip' recorta solo en horizontal y deja el vertical en 'visible'.
         n.style.setProperty('overflow-x', small ? 'clip' : 'auto', 'important');
         if (DEBUG) console.log(`[AVCx] tabla: sobran ${over}px en el contenedor ->`, small ? 'sin scroll horizontal (se recorta)' : 'con scroll horizontal', n.tagName + (n.id ? '#' + n.id : '') + (typeof n.className === 'string' && n.className.trim() ? '.' + n.className.trim().split(/\s+/).join('.') : ''));
         break;
@@ -2353,52 +2353,32 @@
     if (DEBUG) console.log('[AVCx] menú lateral colapsado:', { opciones: items.map(i => i.txt), alturaBarra: barH, anchoMenu: w, barraSuperior: !!topbar, tactil: IS_TOUCH });
   }
 
-  // El botón rojo "Generar aviso de cruce" se ve bien al cargar y después se corta por arriba (varias veces mientras la página termina de acomodarse).
-  // Se revisa solo cuando cambia el diseño de la página (ResizeObserver, sin sondeo), al terminar de cargar y en cada enhance: (1) si un contenedor lo recorta (overflow hidden/auto/clip-path), se le quita el recorte;
-  // (2) si algo lo tapa o lo recorta y no es un contenedor con overflow, se anota en la consola (F12) qué elemento es, para poder ajustarlo.
-  // Solo es visual. Línea de consola: [AVCx] botón Generar aviso de cruce.
-  let hdrBtn = null;
-  const hdrLogged = new Set();
-  function unclipHeaderBtn() {
-    if (!hdrBtn || !hdrBtn.isConnected) hdrBtn = [...document.querySelectorAll('a,button')].find(e => /generar aviso de cruce/i.test(e.textContent) && !e.closest('#avcx-nav,#avcx-panel,#avcx-print'));
-    const b = hdrBtn;
+  // 0.121: el botón rojo "Generar aviso de cruce" (arriba a la derecha) pasa al menú del logo, abajo de "Consultar AVC", con su ícono y el estilo de las
+  // demás opciones; el original se oculta y la opción del menú lo dispara (abre la página del portal para capturar el AVC a mano). Se quitó el arreglo
+  // que evitaba que el botón se recortara por arriba (ResizeObserver), que ya no hace falta. Se busca en cada enhance hasta encontrarlo (sin temporizadores ni observadores).
+  // Sin menú lateral (botón ☰ en táctil) el botón se queda donde está.
+  let genItem = null, genBtn = null;
+  function moveGenBtn() {
+    if (genItem && genItem.isConnected && genBtn && genBtn.isConnected) return;
+    const nav = document.querySelector('#avcx-nav:not(.avcx-fab)');
+    const menu = nav && nav.querySelector('.avcx-nav-menu');
+    if (!menu) return;
+    const b = [...document.querySelectorAll('a,button')].find(e => /generar aviso de cruce/i.test(e.textContent) && !e.closest('#avcx-nav,#avcx-panel,#avcx-print'));
     if (!b) return;
-    watchHeaderBtn();
-    const br = b.getBoundingClientRect();
-    if (!br.height || br.top < 0 || br.top > innerHeight - 20) return;
-    for (let n = b.parentElement; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
-      const cs = getComputedStyle(n);
-      if (!/hidden|clip|auto|scroll/.test(cs.overflow + cs.overflowY) && cs.clipPath === 'none') continue;
-      const r = n.getBoundingClientRect();
-      if ((r.top > br.top + 1 || r.bottom < br.bottom - 1) && !n.dataset.avcxUnclip) {
-        n.style.setProperty('overflow', 'visible', 'important');
-        n.style.setProperty('clip-path', 'none', 'important');
-        n.dataset.avcxUnclip = '1';
-        if (DEBUG) console.log('[AVCx] botón Generar aviso de cruce: se quitó el recorte de', n.tagName + (n.id ? '#' + n.id : '') + (typeof n.className === 'string' && n.className.trim() ? '.' + n.className.trim().split(/\s+/).join('.') : ''));
-      }
-    }
-    // ¿sigue tapado? se prueba un punto cerca del borde de arriba del botón
-    const el = document.elementFromPoint(br.left + br.width / 2, br.top + 3);
-    if (el && el !== b && !b.contains(el) && !el.closest('#avcx-nav,#avcx-banner,#avcx-toast,#avcx-tip,#avcx-panel,#avcx-print')) {
-      const cs = getComputedStyle(el), r = el.getBoundingClientRect();
-      const sig = el.tagName + '#' + el.id + '.' + el.className;
-      if (!hdrLogged.has(sig)) {
-        hdrLogged.add(sig);
-        console.warn('[AVCx] botón Generar aviso de cruce: en su borde de arriba hay otro elemento (' + (el.contains(b) ? 'contiene al botón' : 'lo tapa') + '):',
-          { elemento: sig, posicion: cs.position, overflow: cs.overflow, zIndex: cs.zIndex, top: Math.round(r.top), bottom: Math.round(r.bottom), botonTop: Math.round(br.top), html: el.outerHTML.slice(0, 300) });
-      }
-    }
+    if (genItem) genItem.remove(); // el portal reemplazó el botón: se vuelve a enlazar
+    const it = mk('a', 'avcx-nav-item avcx-nav-gen');
+    it.href = (b.tagName === 'A' && b.getAttribute('href')) || '#';
+    const ic = b.querySelector('i,svg,img');
+    if (ic) it.append(ic.cloneNode(true));
+    it.append(mk('span', null, clean(b.textContent) || 'Generar aviso de cruce'));
+    it.addEventListener('click', e => { e.preventDefault(); nav.classList.remove('avcx-open'); b.click(); }); // el botón original hace lo que siempre hizo
+    const items = [...menu.querySelectorAll(':scope > .avcx-nav-item')];
+    const after = items.find(i => /consultar avc/i.test(i.textContent)) || items[items.length - 1];
+    if (after) after.after(it); else menu.prepend(it);
+    b.style.setProperty('display', 'none', 'important');
+    genItem = it; genBtn = b;
+    if (DEBUG) console.log('[AVCx] botón Generar aviso de cruce: movido al menú del logo' + (after ? ' (después de "' + clean(after.textContent) + '")' : ''));
   }
-  // Sin temporizadores: ResizeObserver avisa solo cuando cambia el tamaño de la página o del contenedor del botón; se agrupa en un solo cuadro (rAF)
-  let hdrRO = null, hdrRaf = 0;
-  const hdrSchedule = () => { if (!hdrRaf) hdrRaf = requestAnimationFrame(() => { hdrRaf = 0; unclipHeaderBtn(); }); };
-  function watchHeaderBtn() {
-    if (hdrRO || typeof ResizeObserver !== 'function' || !hdrBtn || !hdrBtn.parentElement) return;
-    hdrRO = new ResizeObserver(hdrSchedule);
-    hdrRO.observe(document.body);
-    hdrRO.observe(hdrBtn.parentElement);
-  }
-  window.addEventListener('load', () => setTimeout(unclipHeaderBtn, 300));
 
   function enhance() {
     if (!PERF) return enhanceCore();
@@ -2408,7 +2388,7 @@
   }
   function enhanceCore() {
     setupSidebar();
-    unclipHeaderBtn();
+    moveGenBtn();
     const table = findTable();
     if (!table) return;
     table.classList.add('avcx-table');
@@ -3011,6 +2991,7 @@
     #avcx-nav .avcx-nav-item{display:flex;align-items:center;gap:10px;padding:10px 16px;color:#6b1f33;text-decoration:none;white-space:nowrap;cursor:pointer}
     #avcx-nav .avcx-nav-item:hover{background:#f3e9eb}
     #avcx-nav .avcx-nav-item.on{font-weight:700}
+    #avcx-nav .avcx-nav-gen>i,#avcx-nav .avcx-nav-gen>svg{color:inherit!important;margin:0!important}
     #avcx-nav .avcx-nav-tools{border-top:1px solid #ddd;margin-top:6px;padding-top:6px}
     #avcx-nav .avcx-nav-tools>*{position:static!important;display:block;box-sizing:border-box;width:calc(100% - 24px);margin:6px 12px 0;opacity:1;text-align:left}
     #avcx-nav .avcx-nav-tools>*{-webkit-appearance:none!important;appearance:none!important;background:#fff!important;background-image:none!important;
