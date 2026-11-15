@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.112
+// @version      0.115
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -124,7 +124,11 @@
   const WATCH_KEEP_HOURS = 24;        // Cumplido: AVC de otras hojas que se muestran en la hoja 1 si llegaron en estas últimas horas
   const WATCH_MAX_PAGES = 5;          // hojas como máximo por cada estatus vigilado (20 AVC por hoja)
   const WATCH_WARN_DAYS = 9;          // No presentado: solo se vigilan los emitidos en estos últimos días (la fecha va en el folio). El AVC dura 7 días: el emitido el día 13 vence el 21 (fecha_vigencia del servicio); 9 días cubren hasta el final de ese día. Uno vencido sin presentar ya no cambia. Reconocimiento: todos, sin límite
+  const RECON_LONG_H = 2;             // 0.113: en Reconocimiento, a partir de estas horas la fila se marca más fuerte (el tiempo se muestra bajo el estatus)
+  const DAY_SUM_ON = true;            // 0.113: resumen del día en la barra Filtros (despachados hoy, en reconocimiento, por presentar); sale de las tablas, sin peticiones
+  const COPY_SUM_ON = true;           // 0.113: botón por fila que copia "Pedimento · RFC · Estatus · hora" (sin razón social) al portapapeles
   const TS_LABEL_ON = true;           // 0.112: fecha y hora de llegada en texto pequeño bajo el estatus (Reconocimiento y Cumplido); "≈" = aproximada
+  const WATCH_CATCHUP = true;         // 0.114: al cargar tras tener el portal cerrado, revisa una vez las hojas 2.. hasta los AVC emitidos antes de la última revisión y trae los desaduanados en ese lapso
   const WATCH_WARN_IMPORT = true;     // 0.110: los No presentados VIGENTES de otras hojas se muestran en la hoja 1 (ya vienen en la vigilancia: sin peticiones extra)
   const WATCH_MAX_FETCH = 10;         // filas que se traen por folio en cada revisión como máximo (las demás, en la siguiente)
   const EXTRA_PAGES = 2;              // respaldo: hojas extra que se revisan si la vigilancia no se puede usar
@@ -860,12 +864,17 @@
   // documentos_aduanales.pedimentos.{normal,parte_2,copia_simple,remesa_previo_consolidado,aviso_electronico}[]
   // Otros tipos de documento (p. ej. Arribo Tránsito) traen sus pedimentos un nivel más adentro:
   // documentos_aduanales.arribo_transito.pedimentos.normal[] (verificado con la estructura de un AVC real).
+  const remesaObjs = new WeakSet();
   function pedimentosFrom(docAduanales) {
     const out = [];
     const walk = node => {
       const cats = node && node.pedimentos;
       if (!cats || typeof cats !== 'object') return;
-      Object.values(cats).forEach(arr => (Array.isArray(arr) ? arr : []).forEach(p => { if (p && typeof p === 'object') out.push(p); }));
+      Object.entries(cats).forEach(([k, arr]) => (Array.isArray(arr) ? arr : []).forEach(p => {
+        if (!p || typeof p !== 'object') return;
+        if (k === 'remesa_previo_consolidado') remesaObjs.add(p); // 0.113: para mostrar las remesas (R1-2-3) en la columna Pedimento(s)
+        out.push(p);
+      }));
     };
     walk(docAduanales);
     Object.values(docAduanales || {}).forEach(v => { if (v && typeof v === 'object' && !Array.isArray(v)) walk(v); });
@@ -907,7 +916,8 @@
       const c = p.consecutivo == null || p.consecutivo === '' ? NaN : Number(p.consecutivo);
       const key = ped + '|' + (isNaN(c) ? '' : c);
       let r = recs.get(key);
-      if (!r) recs.set(key, r = { ped, cons: isNaN(c) ? 0 : c, rfcs: [] });
+      if (!r) recs.set(key, r = { ped, cons: isNaN(c) ? 0 : c, rfcs: [], rem: false });
+      if (remesaObjs.has(p)) r.rem = true;
       if (rfc && !r.rfcs.includes(rfc)) r.rfcs.push(rfc);
     };
     pedimentosFrom(j.documentos_aduanales).forEach(take);
@@ -919,11 +929,16 @@
       if (!inicio) inicio = inicioFrom(pj.documentos_aduanales);
     });
     const sorted = [...recs.values()].sort((a, b) => a.ped.localeCompare(b.ped, 'es', { numeric: true }) || a.cons - b.cons);
-    return { ped: uniq(sorted.map(r => r.ped)).join(', '), rfc: uniq([...sorted.flatMap(r => r.rfcs), ...extra]).join(', '), inicio, ts: fechaTs(j.momento_cruce) }; // ts (0.102): momento_cruce = fecha y hora del PRIMER estatus del AVC (ver sortRecent)
+    // 0.113: las remesas van junto a su pedimento, como en el nombre del PDF: "6000010 R1-2-3, 6000011"
+    const pedTxt = uniq(sorted.map(r => r.ped)).map(pd => {
+      const rs = uniq(sorted.filter(r => r.ped === pd && r.rem && r.cons > 0).map(r => String(r.cons)));
+      return rs.length ? pd + ' R' + rs.join('-') : pd;
+    }).join(', ');
+    return { ped: pedTxt, rfc: uniq([...sorted.flatMap(r => r.rfcs), ...extra]).join(', '), inicio, ts: fechaTs(j.momento_cruce) }; // ts (0.102): momento_cruce = fecha y hora del PRIMER estatus del AVC (ver sortRecent)
   }
 
   const wsMem = new Map();
-  const WSKEY = 'avcxws6:'; // prefijo nuevo (0.102: el resultado trae ts); antes avcxws5 (0.84): los resultados cacheados ahora salen ordenados por pedimento (0.40: incluyen el AVC de inicio de tránsito)
+  const WSKEY = 'avcxws7:'; // 0.113: Pedimento(s) trae las remesas (R1-2-3); antes avcxws6 // prefijo nuevo (0.102: el resultado trae ts); antes avcxws5 (0.84): los resultados cacheados ahora salen ordenados por pedimento (0.40: incluyen el AVC de inicio de tránsito)
   function loadWS(folio) {
     if (wsMem.has(folio)) return wsMem.get(folio);
     const p = (async () => {
@@ -1443,6 +1458,7 @@
   let lastOkAt = Date.now();                                 // hora de la última actualización correcta del listado (al cargar la página cuenta como correcta)
   let delN = 0;                                              // cuántos AVC eliminados hay en el listado actual
   let hideExpired = EXPIRED_ON && store.get('hidexp', HIDE_EXPIRED_DEFAULT ? '1' : '0') === '1'; // casilla "Ocultar No presentados vencidos" (persistente)
+  let daySum = '';                                           // texto del resumen del día (DAY_SUM_ON)
   let expN = 0;                                              // cuántos No presentados vencidos hay en el listado actual
   const rowHidden = r => !!((hideDeleted && r.dataset.avcxDel) || (hideExpired && r.dataset.avcxExp)); // filas ocultas por las casillas
 
@@ -1510,6 +1526,7 @@
     const cut = s => (s.length > FILTER_VALUE_MAX ? s.slice(0, FILTER_VALUE_MAX - 1) + '…' : s);
     return (open ? '▾' : '▸') + ' Filtros' + (open ? '' : ' (clic para mostrar)') +
       (act.length ? ' · Activos: ' + act.map(a => (a.k ? a.k + ': ' : '') + cut(a.v)).join('; ') : '') +
+      (daySum ? ' · ' + daySum : '') +
       (AUTO_REFRESH_SEC > 0 ? ' · Actualizado ' + fmtHora(lastOkAt) : '') +
       (hideDeleted && delN ? ` · ${delN} eliminado${delN === 1 ? '' : 's'} oculto${delN === 1 ? '' : 's'}` : '') +
       (hideExpired && expN ? ` · ${expN} vencido${expN === 1 ? '' : 's'} oculto${expN === 1 ? '' : 's'}` : '');
@@ -1992,7 +2009,36 @@
       const aprox = o[1] === 'w' && cls === 'ok' && !/libre/i.test(c.textContent);
       t = (aprox ? '≈ ' : '') + pad2(d.getDate()) + '-' + pad2(d.getMonth() + 1) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
     }
+    // 0.113: en Reconocimiento, cuánto lleva (la hora de entrada es exacta) y marca fuerte desde RECON_LONG_H horas
+    let long = false;
+    if (t && cls === 'bad') {
+      const min = Math.max(0, Math.floor((Date.now() - o[0]) / 60000));
+      t += ' · ' + (min < 60 ? min + ' min' : Math.floor(min / 60) + ' h ' + (min % 60) + ' min');
+      long = RECON_LONG_H > 0 && min >= RECON_LONG_H * 60;
+    }
     if ((c.dataset.avcxTs || '') !== t) { if (t) c.dataset.avcxTs = t; else delete c.dataset.avcxTs; }
+    if (long !== !!r.dataset.avcxLong) { if (long) r.dataset.avcxLong = '1'; else delete r.dataset.avcxLong; }
+  }
+  // Se llama en cada sondeo (el temporizador que ya existe): actualiza el tiempo en Reconocimiento y el resumen del día
+  function refreshTsLabels() {
+    splitGroups.forEach(g => { if (g.cls === 'bad') [...g.tbody.rows].forEach(r => setTsLabel(r, 'bad')); });
+    updateDaySum();
+  }
+  // Resumen del día (0.113): cuenta lo que hay en las tablas (respeta tus filtros): Cumplido con hora de hoy, Reconocimiento y No presentados vigentes
+  function updateDaySum() {
+    let t = '';
+    if (DAY_SUM_ON && splitView && splitGroups.length) {
+      const mid = new Date(); mid.setHours(0, 0, 0, 0);
+      let ok = 0, bad = 0, warn = 0;
+      splitGroups.forEach(g => [...g.tbody.rows].forEach(r => {
+        if (r.dataset.avcxDel) return;
+        if (g.cls === 'ok') { const o = ordRec[rowFolio(r)]; if (o && o[2] === 'ok' && o[0] >= +mid) ok++; }
+        else if (g.cls === 'bad') bad++;
+        else if (g.cls === 'warn' && !r.dataset.avcxExp) warn++;
+      }));
+      t = `Hoy: ${ok} despachado${ok === 1 ? '' : 's'} · ${bad} en reconocimiento · ${warn} por presentar`;
+    }
+    if (t !== daySum) { daySum = t; refreshBars(); }
   }
   function sortRecent() {
     splitGroups.forEach(g => {
@@ -2012,6 +2058,7 @@
       sorted.forEach(r => g.tbody.appendChild(r));
     });
     ordSave();
+    updateDaySum();
   }
   function scheduleSortTs() {
     if (document.hidden) ordSave(); // con la pestaña oculta no corre requestAnimationFrame: lo anotado se guarda ya (el orden se aplica al volver)
@@ -2480,6 +2527,7 @@
   // y la hora de la última revisión. Las filas traídas llevan data-avcx-extra: el sondeo de la hoja no las quita; aquí se reemplazan o se quitan.
   const WATCH_FRESH_MS = 3 * 60000;   // si la revisión anterior fue hace menos de esto, un cambio se anota con la hora de ahora ('o'); si no, con momento_cruce ('w')
   let watchBusy = false;
+  let catchupDone = false;            // la puesta al día (WATCH_CATCHUP) corre una sola vez por carga
   let watchBroken = false;            // el filtro no respondió como se esperaba: se usa el respaldo (hojas 2..)
   let pollN = 0, hidN = 0;
   const watchTried = new Set();       // folios que ya se intentaron traer en esta carga y no aparecieron (no se repite)
@@ -2655,6 +2703,28 @@
       const x = res && res.rows.find(y => y.f === f);
       if (x && x.cls === 'ok') imp.push(x);
     }
+    // 4b) Puesta al día (0.114): AVC emitidos y desaduanados mientras el portal estaba cerrado que ya no caben en la hoja 1. Nunca estuvieron en los pendientes,
+    // así que la vigilancia no los conoce: se leen las hojas 2.. del listado (mismos filtros) hasta llegar a folios emitidos antes de la última revisión.
+    // Una sola vez por carga y solo si la revisión anterior no es reciente. La hora sale de momento_cruce (exacta para Desaduanamiento libre).
+    if (WATCH_CATCHUP && prev.t && !fresh && !catchupDone) {
+      catchupDone = true;
+      const since = prev.t - 86400e3; // la fecha del folio no trae hora: un día de margen
+      const cand = [];
+      for (let p = 2; p <= WATCH_MAX_PAGES + 1; p++) {
+        let res = null;
+        try { res = await readList(urlWith(spec.base, { page: p })); } catch (_) { break; }
+        if (!res || !res.rows.length) break;
+        for (const x of res.rows) {
+          const fd = folioDate(x.f);
+          if (x.cls !== 'ok' || (fd && fd < since) || mine.has(x.f) || prev.f[x.f] || imp.some(y => y.f === x.f) || cand.some(y => y.f === x.f)) continue;
+          cand.push(x);
+        }
+        if (p >= res.pages || res.rows.some(x => { const fd = folioDate(x.f); return fd && fd < since; })) break;
+      }
+      // las horas se piden en paralelo (la cola del servicio web limita a CONCURRENCY); las que ya están guardadas no generan petición
+      await Promise.all(cand.map(x => stamp(x.f, 'ok', false, prev.t, now)));
+      cand.forEach(x => { const o = ordRec[x.f]; if (o && o[2] === 'ok' && o[0] >= limit) { imp.push(x); cambios++; } });
+    }
     // 5) traídas antes que ya no aplican: Cumplido viejo, o en Reconocimiento que ya no está ahí y no se pudo traer
     mine.forEach((r, f) => {
       if (!r.dataset.avcxExtra || imp.some(x => x.f === f)) return;
@@ -2741,6 +2811,7 @@
     if (hid) { if (HIDDEN_EVERY <= 0 || hidN++ % HIDDEN_EVERY) return; }
     else hidN = 0;
     await pollForNewRows();
+    try { refreshTsLabels(); } catch (_) { /* solo visual */ }
     if (back === true || hid || pollN++ % WATCH_EVERY === 0) watchTick();
   }
 
@@ -2793,6 +2864,8 @@
     .avcx-table tr[data-avcx-exp]>td,.avcx-table tr[data-avcx-exp]:hover>td{background-color:#eeeeee!important;color:#888!important}
     .avcx-table tr[data-avcx-extra][data-avcx-status="warn"] .avcx-stcell::after{content:" · de otra hoja";font-size:.85em;color:#8a6d00}
     .avcx-table tr[data-avcx-exp] .avcx-stcell::after{content:" · Vencido " attr(data-avcx-exp);font-size:.85em;color:#666}
+    .avcx-table tr[data-avcx-long]>td,.avcx-table tr[data-avcx-long]:hover>td{background-color:#ef9a9a!important}
+    .avcx-table tr[data-avcx-long] .avcx-stcell[data-avcx-ts]::after{color:#b71c1c!important;font-weight:700}
     .avcx-table tr[data-avcx-status="ok"] .avcx-stcell[data-avcx-ts]::after,.avcx-table tr[data-avcx-status="bad"] .avcx-stcell[data-avcx-ts]::after{content:attr(data-avcx-ts);display:block;font-size:11px;line-height:1.1;margin-top:1px;color:#555;text-align:center}
     .avcx-splitbar{display:block;width:100%;box-sizing:border-box;text-align:left;cursor:pointer;margin:14px 0 6px;padding:6px 12px;border:0;border-radius:4px;border-left:6px solid #999;background:#f3f3f3;color:#222;font:600 14px system-ui,sans-serif}
     .avcx-splitbar:hover{filter:brightness(.96)}
@@ -3607,6 +3680,26 @@
       });
       cell.appendChild(pb);
     }
+    if (COPY_SUM_ON && !row.querySelector('.avcx-cpy')) { // 0.113: copiar resumen (sin razón social ni folio); todo local, al portapapeles
+      const cb = document.createElement('a');
+      cb.href = '#';
+      cb.className = 'avcx-cpy' + (eye ? ' ' + eye.className : '');
+      cb.setAttribute('role', 'button');
+      cb.title = 'Copiar resumen: pedimento, RFC, estatus y hora (para pegarlo en un mensaje)';
+      cb.innerHTML = '<i class="fas fa-copy"></i>';
+      cb.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        const s = rowSummary(row);
+        copyText(s).then(ok => toast(ok ? 'Copiado: ' + s : 'No se pudo copiar: ' + s));
+      });
+      cell.appendChild(cb);
+    }
+  }
+  function rowSummary(row) {
+    const g = id => { const td = row.querySelector(`td[data-avcx-col="${id}"]`); const t = td ? clean(td.textContent) : ''; return /^(…|—|⚠)?$/.test(t) ? '' : t; };
+    const sc = row.querySelector('.avcx-stcell');
+    return [g('ped') && 'Pedimento: ' + g('ped'), g('rfc') && 'RFC: ' + g('rfc'), sc ? clean(sc.textContent) : '', (sc && sc.dataset.avcxTs) || ''].filter(Boolean).join(' · ');
   }
 
   /* ================= VISTA IMPRIMIBLE DEL AVC (con placas y QR) ================= */
