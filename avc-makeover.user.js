@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.125
+// @version      0.126
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -214,6 +214,8 @@
   const TIPO_OP_ON = true;                              // false = se ve el texto completo del portal
   const TIPO_OP_COL_RE = /^tipo\s+(de\s+)?operacion\b/; // encabezado de la columna Tipo de operación
   const DOC_COL_RE = /^documento\b/;                    // encabezado de la columna Documento
+  // 0.126: títulos cortos en el encabezado (solo visual, por CSS: el texto real se conserva para detectar columnas; el completo queda en el tooltip)
+  const HEAD_SHORT = [[/^folio\b/, 'Folio'], [TIPO_OP_COL_RE, 'Tipo'], [/^modalidad\b/, 'Modalidad']];
   // Vista imprimible del AVC: botón de impresora en cada fila. Arma EN LOCAL (sin captcha) una representación gráfica con los datos del servicio web oficial de la ANAM,
   // con el mismo diseño del AVC del portal (incluidas las placas del vehículo) y un QR generado en el equipo; se imprime o se guarda como PDF desde el navegador. Requiere token o credenciales del servicio web.
   // No es el acuse PDF del portal. No agrega peticiones: usa la misma consulta por folio que ya usa el script.
@@ -1783,6 +1785,22 @@
     splitGroups.forEach(g => g.tbody.replaceChildren());
   }
 
+  // 0.126: marca una sola vez los encabezados largos con su título corto (data-avcx-short + title); el CSS muestra el corto.
+  function shortHeads(headRow) {
+    if (!headRow) return;
+    let fs = '';
+    for (const th of headRow.cells) {
+      if (th.dataset.avcxShort) continue;
+      const t = norm(th.textContent);
+      const m = HEAD_SHORT.find(([re]) => re.test(t));
+      if (!m) continue;
+      if (!fs) fs = getComputedStyle(th).fontSize || '1rem'; // una sola lectura por fila de encabezado
+      th.style.setProperty('--avcx-thfs', fs);
+      th.title = clean(th.textContent);
+      th.dataset.avcxShort = m[1];
+    }
+  }
+
   // El encabezado de las tablas de grupo es una copia de la fila de encabezado de la original (ya con las columnas nuevas y las ocultas); se vuelve a copiar si cambia
   function syncSplitHead(headRow) {
     const sig = headRow.innerHTML;
@@ -2473,6 +2491,7 @@
 
     if (tweakColumns(table, headRow)) changed = true;
     if (fmtTipoOp(table, headRow)) changed = true;
+    shortHeads(headRow);
     hideFilterCells(table, headRow);
     paintStatus(table, headRow);
     updateDelCount(table);
@@ -2998,6 +3017,9 @@
     .avcx-split-scroll>.avcx-split-tbl{margin-bottom:0}
     /* el portal pone z-index:10 a los botones .btn de las filas (acciones); el encabezado fijo debe quedar por encima. isolation contiene este z-index dentro de la tabla */
     .avcx-split-scroll thead th{position:sticky;top:0;z-index:20;background-color:var(--avcx-head-bg,#fff)}
+    th[data-avcx-short]{font-size:0!important}
+    th[data-avcx-short]>*{display:none!important}
+    th[data-avcx-short]::after{content:attr(data-avcx-short);font-size:var(--avcx-thfs,1rem)}
     .avcx-fol-full{display:none!important}
     .avcx-fol-short{cursor:pointer}
     .avcx-fol-short:hover{text-decoration:underline dotted}
