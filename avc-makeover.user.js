@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.117
+// @version      0.119
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -2072,18 +2072,50 @@
     splitGroups.forEach(g => { if (g.cls === 'bad') [...g.tbody.rows].forEach(r => setTsLabel(r, 'bad')); });
     updateDaySum();
   }
-  // Resumen del día (0.113): cuenta lo que hay en las tablas (respeta tus filtros): Cumplido con hora de hoy, Reconocimiento y No presentados vigentes
+  // Resumen del día (0.119): no depende de la hoja abierta y respeta tus filtros. En reconocimiento y por presentar = conteo guardado por la vigilancia ('daycnt': se pide
+  // con tus mismos filtros, cada minuto y desde cualquier hoja; solo se usa si corresponde a los filtros actuales). Despachados hoy = horas de llegada guardadas (ordRec);
+  // de los filtros solo se puede aplicar ahí la Aduana (sale del folio): los demás filtros (fechas, RFC...) no se reflejan en ese número.
+  // Si falta el conteo o tiene más de DAY_SUM_MAX_AGE_MS, se cuenta lo que hay en las tablas de la hoja abierta (respaldo).
+  const DAY_SUM_MAX_AGE_MS = 10 * 60000;
+  let dayFiltMemo = { href: '', v: null };
+  function dayFilter() {
+    const u = new URL(location.href);
+    if (dayFiltMemo.v && dayFiltMemo.href === u.href) return dayFiltMemo.v;
+    const wf = watchFields();
+    const table = findTable();
+    const el = table && findFilter(table);
+    const form = el && (el.tagName === 'FORM' ? el : el.querySelector('form'));
+    const skip = new Set(['page']);
+    if (wf) { skip.add(wf.est); skip.add(wf.fol); } // el conteo es por estatus: esos dos filtros no cuentan
+    const key = [...u.searchParams].filter(([k, v]) => v !== '' && !skip.has(k)).map(([k, v]) => k + '=' + v).sort().join('&');
+    let adu = '';
+    const sel = form && [...form.querySelectorAll('select[name]')].find(x => /aduana/i.test(fieldLabel(x) + ' ' + x.name));
+    if (sel) {
+      const val = u.searchParams.get(sel.name);
+      const o = val && [...sel.options].find(x => x.value === val);
+      const m = o && clean(o.textContent).match(/^(\d{2})/);
+      adu = m ? m[1] : '';
+    }
+    const v = { key, adu };
+    if (form) dayFiltMemo = { href: u.href, v };
+    return v;
+  }
   function updateDaySum() {
     let t = '';
     if (DAY_SUM_ON && splitView && splitGroups.length) {
       const mid = new Date(); mid.setHours(0, 0, 0, 0);
+      const d = dayFilter();
       let ok = 0, bad = 0, warn = 0;
+      const del = new Set();
       splitGroups.forEach(g => [...g.tbody.rows].forEach(r => {
-        if (r.dataset.avcxDel) return;
-        if (g.cls === 'ok') { const o = ordRec[rowFolio(r)]; if (o && o[2] === 'ok' && o[0] >= +mid) ok++; }
-        else if (g.cls === 'bad') bad++;
+        if (r.dataset.avcxDel) { del.add(rowFolio(r)); return; }
+        if (g.cls === 'bad') bad++;
         else if (g.cls === 'warn' && !r.dataset.avcxExp) warn++;
       }));
+      Object.entries(ordRec).forEach(([f, o]) => { if (o && o[2] === 'ok' && o[0] >= +mid && !del.has(f) && (!d.adu || f.slice(3, 5) === d.adu)) ok++; });
+      let c = null;
+      try { c = JSON.parse(store.get('daycnt', '{}')); } catch (_) { c = null; }
+      if (c && c.t && c.k === d.key && Date.now() - c.t < DAY_SUM_MAX_AGE_MS && Number.isFinite(c.b) && Number.isFinite(c.w)) { bad = c.b; warn = c.w; }
       t = `Hoy: ${ok} despachado${ok === 1 ? '' : 's'} · ${bad} en reconocimiento · ${warn} por presentar`;
     }
     if (t !== daySum) { daySum = t; refreshBars(); }
@@ -2615,7 +2647,7 @@
     return { rows, pages: m ? +m[1] : 1 };
   }
   // Campos del formulario de filtros para armar las consultas (solo si es GET y tiene Estatus y Folio); null = no se puede, se usa el respaldo
-  function watchSpec() {
+  function watchFields() {
     if (watchBroken) return null;
     const table = findTable();
     const el = table && findFilter(table);
@@ -2630,10 +2662,46 @@
       return { v: o.value, cls: r ? r.cls : '' };
     }).filter(o => o.cls === 'warn' || o.cls === 'bad');
     if (!opts.length) return null;
+    return { est: sel.name, fol: fol.name, opts };
+  }
+  function watchSpec() {
+    const f = watchFields();
+    if (!f) return null;
     const base = new URL(location.href);
-    if (base.searchParams.get(sel.name) || base.searchParams.get(fol.name)) return null; // ya filtras por estatus o folio: no aplica
+    if (base.searchParams.get(f.est) || base.searchParams.get(f.fol)) return null; // ya filtras por estatus o folio: no aplica
     base.searchParams.delete('page');
-    return { base, est: sel.name, fol: fol.name, opts };
+    return { base, ...f };
+  }
+  // Lee los AVC de cada estatus vigilado (Reconocimiento y No presentado) con la URL base dada: Map folio -> fila. Lo usan la vigilancia y el conteo del resumen del día.
+  async function readPend(base, est, opts) {
+    const cur = new Map();
+    const oldWarn = Date.now() - WATCH_WARN_DAYS * 86400e3; // No presentados emitidos antes de esto ya vencieron: no se vigilan (0.107)
+    const tooOld = (f, cls) => cls === 'warn' && folioDate(f) > 0 && folioDate(f) < oldWarn;
+    for (const o of opts) {
+      for (let p = 1; p <= WATCH_MAX_PAGES; p++) {
+        const res = await readList(urlWith(base, p > 1 ? { [est]: o.v, page: p } : { [est]: o.v }));
+        if (!res) throw appErr('el listado filtrado no se pudo leer', 'http');
+        if (res.rows.some(x => x.cls !== o.cls)) { watchBroken = true; throw appErr('el filtro de estatus no respondió como se esperaba', 'http'); }
+        res.rows.forEach(x => { if (!tooOld(x.f, x.cls)) cur.set(x.f, x); });
+        if (p >= res.pages || !res.rows.length) break;
+        if (res.rows.some(x => tooOld(x.f, x.cls))) break; // el listado va del más nuevo al más viejo: las hojas siguientes ya son vencidos
+      }
+    }
+    return cur;
+  }
+  // Conteo para el resumen del día (0.119): con tus filtros y de cualquier hoja. En la hoja 1 reutiliza la lectura de la vigilancia (sin peticiones extra);
+  // en las demás hojas pide los estatus vigilados con los mismos filtros (sin el filtro de estatus ni folio).
+  async function dayCounts(f, curNow) {
+    let cur = curNow;
+    if (!cur) {
+      const base = new URL(location.href);
+      [ 'page', f.est, f.fol ].forEach(k => base.searchParams.delete(k));
+      cur = await readPend(base, f.est, f.opts);
+    }
+    let b = 0, w = 0;
+    cur.forEach(x => { if (x.cls === 'bad') b++; else if (x.cls === 'warn' && !expiredOn(x.f)) w++; });
+    try { store.set('daycnt', JSON.stringify({ t: Date.now(), b, w, k: dayFilter().key })); } catch (_) { /* ignore */ }
+    updateDaySum();
   }
   const urlWith = (base, set) => { const u = new URL(base.href); Object.entries(set).forEach(([k, v]) => u.searchParams.set(k, v)); return u.href; };
   function domRows() {
@@ -2685,19 +2753,9 @@
     try { prev = JSON.parse(store.get('pend', '{}')) || prev; prev.f = prev.f || {}; } catch (_) { prev = { t: 0, f: {} }; }
     const fresh = !!prev.t && now - prev.t < WATCH_FRESH_MS;
     // 1) los pendientes de hoy, por cada estatus vigilado
-    const cur = new Map();
     const oldWarn = now - WATCH_WARN_DAYS * 86400e3; // No presentados emitidos antes de esto ya vencieron: no se vigilan (0.107)
     const tooOld = (f, cls) => cls === 'warn' && folioDate(f) > 0 && folioDate(f) < oldWarn;
-    for (const o of spec.opts) {
-      for (let p = 1; p <= WATCH_MAX_PAGES; p++) {
-        const res = await readList(urlWith(spec.base, p > 1 ? { [spec.est]: o.v, page: p } : { [spec.est]: o.v }));
-        if (!res) throw appErr('el listado filtrado no se pudo leer', 'http');
-        if (res.rows.some(x => x.cls !== o.cls)) { watchBroken = true; throw appErr('el filtro de estatus no respondió como se esperaba', 'http'); }
-        res.rows.forEach(x => { if (!tooOld(x.f, x.cls)) cur.set(x.f, x); });
-        if (p >= res.pages || !res.rows.length) break;
-        if (res.rows.some(x => tooOld(x.f, x.cls))) break; // el listado va del más nuevo al más viejo: las hojas siguientes ya son vencidos
-      }
-    }
+    const cur = await readPend(spec.base, spec.est, spec.opts);
     const mine = domRows();
     const imp = [], drop = [], waits = [];
     let cambios = 0;
@@ -2788,6 +2846,7 @@
     const n = importRows(imp, drop);
     ordSave();
     if (prev.t && cambios && n) toast(cambios === 1 ? '1 AVC de otras hojas cambió de estatus y se muestra arriba.' : `${cambios} AVC de otras hojas cambiaron de estatus y se muestran arriba.`);
+    return cur;
   }
   // Respaldo (0.103): revisa las hojas 2..(1 + EXTRA_PAGES) y trae los que llegaron a Reconocimiento o Cumplido en las últimas WATCH_KEEP_HOURS horas
   const extraPrev = new Map(); // folio -> estatus en la revisión anterior (solo en memoria)
@@ -2828,22 +2887,27 @@
   }
   const watchInfo = { corridas: 0, ultima: '', ultimo_error: '', no_corre: '' }; // solo para el diagnóstico (sin datos)
   async function watchTick() {
-    const why = !WATCH_ON ? 'WATCH_ON = false' : !ORDER_ON ? 'ORDER_ON = false' : !splitView ? 'sin "Separar por estatus"' : !splitGroups.length ? 'sin tablas por estatus' : watchBusy ? '' : !onPage1() ? 'no estás en la hoja 1' : '';
+    const why = !WATCH_ON ? 'WATCH_ON = false' : !ORDER_ON ? 'ORDER_ON = false' : !splitView ? 'sin "Separar por estatus"' : !splitGroups.length ? 'sin tablas por estatus' : watchBusy ? '' : '';
     if (why) watchInfo.no_corre = why;
     if (why || watchBusy) return;
     watchInfo.no_corre = '';
     watchBusy = true;
+    const p1 = onPage1(); // fuera de la hoja 1 solo se actualiza el conteo del resumen del día (0.118); las filas de otras hojas se muestran en la hoja 1
     try {
-      const spec = watchSpec();
-      if (spec) await watchPend(spec);
-      else await pollExtra();
+      const spec = p1 ? watchSpec() : null;
+      if (spec) { const cur = await watchPend(spec); await dayCounts(spec, cur); }
+      else {
+        if (p1) await pollExtra();
+        const f = watchFields();
+        if (f) await dayCounts(f, null);
+      }
       watchInfo.corridas++;
       watchInfo.ultima = fmtHora(Date.now());
       watchInfo.ultimo_error = '';
     } catch (e) {
       watchInfo.ultimo_error = fmtHora(Date.now()) + ' ' + clean(e.message).replace(/AVC\d{21}/g, 'AVC…').slice(0, 160);
       if (DEBUG) console.warn('[AVCx] vigilancia de pendientes:', e.message);
-      if (watchBroken) { try { await pollExtra(); } catch (_) { /* ignore */ } }
+      if (watchBroken && p1) { try { await pollExtra(); } catch (_) { /* ignore */ } }
     } finally {
       watchBusy = false;
     }
