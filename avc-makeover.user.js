@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.151
+// @version      0.152
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -1030,8 +1030,8 @@
       if (d.ts && row.dataset.avcxStatus && ORDER_GROUPS.includes(row.dataset.avcxStatus) && !ordKey(row, row.dataset.avcxStatus)) { ordSet(folio, d.ts, 'w', row.dataset.avcxStatus); scheduleSortTs(); }
       const tdPed = row.querySelector('td[data-avcx-col="ped"]');
       const tdRfc = row.querySelector('td[data-avcx-col="rfc"]');
-      if (d.ped && tdPed) { tdPed.textContent = d.ped; tdPed.title = 'Fuente: servicio web ANAM'; }
-      if (d.rfc && tdRfc) { tdRfc.textContent = d.rfc; tdRfc.title = 'Fuente: servicio web ANAM'; }
+      if (d.ped && tdPed) { tdPed.textContent = d.ped; tdPed.title = 'Fuente: servicio web ANAM'; multiAttr(tdPed); }
+      if (d.rfc && tdRfc) { tdRfc.textContent = d.rfc; tdRfc.title = 'Fuente: servicio web ANAM'; multiAttr(tdRfc); }
       // Arribo Tránsito: el servicio no trae RFC en ese AVC; se intenta con el AVC de inicio de tránsito (otro folio).
       // El RFC se marca con subrayado punteado y su tooltip dice de dónde salió, porque NO es el de esta fila.
       let rfc = d.rfc;
@@ -1041,7 +1041,7 @@
           if (d2.rfc) {
             rfc = d2.rfc;
             if (tdRfc) {
-              tdRfc.textContent = rfc;
+              tdRfc.textContent = rfc; multiAttr(tdRfc);
               tdRfc.title = 'Fuente: servicio web ANAM, tomado del AVC de inicio de tránsito ' + d.inicio + ' (no del AVC de esta fila)';
               tdRfc.style.textDecoration = 'underline dotted';
             }
@@ -1155,6 +1155,16 @@
     }, 900);
   }
 
+  // 0.152: en celular, con la tarjeta cerrada, 3+ pedimentos o 2+ RFC se resumen como "primero +N" (CSS attr); abierta se ven todos. El texto de la celda no cambia.
+  function multiAttr(td) {
+    if (!IS_TOUCH || !td) return;
+    const col = td.dataset.avcxCol, min = col === 'ped' ? 3 : col === 'rfc' ? 2 : 0;
+    if (!min) return;
+    const it = td.textContent.split(',').map(x => x.trim()).filter(Boolean);
+    const first = it.length >= min ? it[0] : '', more = first ? '+' + (it.length - 1) : '';
+    if ((td.dataset.avcxFirst || '') !== first) { if (first) td.dataset.avcxFirst = first; else delete td.dataset.avcxFirst; }
+    if ((td.dataset.avcxMore || '') !== more) { if (more) td.dataset.avcxMore = more; else delete td.dataset.avcxMore; }
+  }
   function setCells(row, f, err) {
     if (PERF && f && f.src && f.src.rs === 'ANAM') { const fo = (row.textContent.match(/AVC\d{21}/) || [])[0]; if (fo) perfRsAnam.add(fo); }
     COLS.forEach(c => {
@@ -1164,6 +1174,7 @@
       const fuente = f && f.src && f.src[c.id] ? 'Fuente: ' + f.src[c.id] : '';
       // razón social: el nombre completo (la celda lo recorta) y debajo la fuente
       td.title = err || (c.id === 'rs' && f[c.id] ? f[c.id] + '\n' + fuente : fuente);
+      multiAttr(td);
     });
   }
 
@@ -3194,8 +3205,10 @@
     /* 0.144: el toque deja la fila en :hover y el verde del hover de escritorio pintaba cada celda (parecía texto seleccionado) */
     html.avcx-touch .avcx-table tbody tr[data-avcx]:hover>td,html.avcx-touch .avcx-table tbody tr[data-avcx]>td{background-color:transparent!important}
     html.avcx-touch .avcx-table tbody tr{-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
-    html.avcx-touch .avcx-table tbody td[data-avcx-col="ped"]::after{content:"\\f107";float:right;font:900 16px/1.4 "Font Awesome 5 Free";color:#888;transition:transform .2s}
-    html.avcx-touch .avcx-table tbody tr.avcx-open>td[data-avcx-col="ped"]::after{transform:rotate(180deg)}
+    /* 0.152: la flecha va al final del renglón de datos (celda Modalidad, que se estira); así el "+N" del pedimento puede ir en verde */
+    html.avcx-touch .avcx-table tbody td.avcx-modcell{flex:1 1 auto}
+    html.avcx-touch .avcx-table tbody td.avcx-modcell::after{content:"\\f107";float:right;font:900 16px/1.25 "Font Awesome 5 Free";color:#888;transition:transform .2s}
+    html.avcx-touch .avcx-table tbody tr.avcx-open>td.avcx-modcell::after{transform:rotate(180deg)}
     html.avcx-touch,html.avcx-touch body{overflow-x:clip}
     html.avcx-touch .avcx-table tbody td.avcx-actcell>*{margin:0!important}
     html.avcx-touch .avcx-table tbody td.avcx-actcell i{font-size:20px!important} /* 0.138: íconos de 20 px y barra de 36 px */
@@ -3209,6 +3222,14 @@
     html.avcx-touch .avcx-table.avcx-hidedel tr[data-avcx-del],html.avcx-touch .avcx-table.avcx-hideexp tr[data-avcx-exp]{display:none!important}
     html.avcx-touch .avcx-split-scroll{overflow-x:hidden!important}
     html.avcx-touch .avcx-splitbar{font-size:14px;padding:6px 12px} /* 0.145: tarjetas compactas (B) */
+    /* 0.152: tarjeta cerrada = 3 renglones fijos: "primer pedimento +N", "primer RFC +N" y razón social a 1 renglón con …; abierta, todo completo */
+    html.avcx-touch .avcx-table tbody tr:not(.avcx-open)>td[data-avcx-first]{font-size:0!important}
+    html.avcx-touch .avcx-table tbody tr:not(.avcx-open)>td[data-avcx-col="ped"][data-avcx-first]::before{content:attr(data-avcx-first);font-size:18px}
+    html.avcx-touch .avcx-table tbody tr:not(.avcx-open)>td[data-avcx-col="ped"][data-avcx-first]::after{content:" " attr(data-avcx-more);font-size:14px;font-weight:600;color:#2e7d32}
+    html.avcx-touch .avcx-table tbody tr:not(.avcx-open)>td[data-avcx-col="rfc"][data-avcx-first]::before{content:attr(data-avcx-first);font-size:13px}
+    html.avcx-touch .avcx-table tbody tr:not(.avcx-open)>td[data-avcx-col="rfc"][data-avcx-first]::after{content:" " attr(data-avcx-more);font-size:12px;font-weight:600;color:#2e7d32}
+    html.avcx-touch .avcx-table tbody tr:not(.avcx-open)>td[data-avcx-col="rs"]{-webkit-line-clamp:1}
+    html.avcx-touch .avcx-table tbody tr.avcx-open>td[data-avcx-col="rs"]{-webkit-line-clamp:unset;display:block!important}
     /* 0.148: lo que el portal mete dentro de las celdas (p, div, span) no suma márgenes en la tarjeta; el renglón del pedimento queda a su alto */
     html.avcx-touch .avcx-table tbody tr>td>*{margin-top:0!important;margin-bottom:0!important}
     html.avcx-touch .avcx-table tbody td.avcx-stcell,html.avcx-touch .avcx-table tbody td.avcx-stcell>*{line-height:1.25!important;padding-top:0!important;padding-bottom:0!important}
