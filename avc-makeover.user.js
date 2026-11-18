@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.143
+// @version      0.145
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -139,7 +139,8 @@
   // portal abierto, aunque sea en otra pestaña). Se activan con la casilla "Avisos de escritorio" de la sección de filtros (el navegador pide permiso una vez).
   // Son locales (API Notification del navegador): no se envía nada a ningún lado. El de Reconocimiento se queda en pantalla hasta que lo cierres.
   const NOTIFY_ON = true;             // false = sin la casilla ni avisos
-  const CARD_GAP_PX = 6;              // 0.136: separación entre tarjetas en celular (la usan el CSS y el alto de las tablas separadas)
+  const MOBILE_MIN_WIDTH = 448;       // 0.145: en celular, pantallas más angostas que esto se dibujan a este ancho y se reducen (336 px -> 75 %); las más anchas usan su ancho real
+  const CARD_GAP_PX = 5;              // 0.145: 5 (antes 6). 0.136: separación entre tarjetas en celular (la usan el CSS y el alto de las tablas separadas)
   const SPLIT_MAX_ROWS = 4;           // renglones visibles por tabla; si hay más, scroll vertical (0 = sin límite)
   // Casilla "Separar por estatus" (dentro de la sección de filtros, junto a "Ocultar AVC eliminados"): activa o desactiva la vista de tres tablas al momento;
   // desactivada, todos los AVC vuelven a una sola tabla, en su orden original. SPLIT_DEFAULT = cómo carga: true = activada (tres tablas), false = desactivada (una tabla).
@@ -3112,6 +3113,7 @@
     #avcx-nav .avcx-fab-btn{width:44px;height:44px;padding:0;border:1px solid #999;border-radius:22px;background:#fff;color:#333;
       font:20px/1 system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer}
     #avcx-nav.avcx-fab .avcx-nav-menu{top:auto;bottom:100%;margin-bottom:6px;border-radius:10px;max-width:calc(100vw - 24px)}
+    html.avcx-touch #avcx-nav{position:absolute} /* 0.145: en celular el logo se va con la página */
     html.avcx-touch #avcx-nav .avcx-nav-item{padding:14px 18px;font-size:15px}
     html.avcx-touch #avcx-nav .avcx-nav-tools>*{font-size:13px;padding:9px 10px}
     html.avcx-touch #avcx-tip{pointer-events:auto;left:8px!important;right:8px;top:auto!important;bottom:8px;max-width:none;max-height:55vh;overflow:auto;font-size:13px}
@@ -3123,12 +3125,12 @@
        Las celdas ocultas por el script (style display:none) siguen ocultas. Encabezado y fila de búsqueda por columna van ocultos en celular. */
     html.avcx-touch .avcx-table,html.avcx-touch .avcx-table tbody{display:block!important;width:100%!important;min-width:0!important;border:0!important}
     html.avcx-touch .avcx-table thead,html.avcx-touch .avcx-table tfoot{display:none!important}
-    html.avcx-touch .avcx-table tbody tr{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:10px;row-gap:4px;margin:0 0 ${CARD_GAP_PX}px;padding:10px 12px 0;border:1px solid #d6d6d6;border-left:5px solid #9e9e9e;border-radius:8px;background:#fff}
+    html.avcx-touch .avcx-table tbody tr{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:10px;row-gap:2px;margin:0 0 ${CARD_GAP_PX}px;padding:6px 10px 0;border:1px solid #d6d6d6;border-left:5px solid #9e9e9e;border-radius:8px;background:#fff}
     html.avcx-touch .avcx-table tbody tr::before,html.avcx-touch .avcx-table tbody tr::after{content:"";flex-basis:100%;height:0;order:3}
     html.avcx-touch .avcx-table tbody tr::after{order:11}
-    html.avcx-touch .avcx-table tbody tr>td{display:block;padding:0!important;margin:0!important;border:0!important;background:transparent!important;box-shadow:none!important;--bs-table-accent-bg:transparent;text-align:left!important;font-size:13px;line-height:1.3;color:#5f5f5f!important;order:10;white-space:nowrap}
+    html.avcx-touch .avcx-table tbody tr>td{display:block;padding:0!important;margin:0!important;border:0!important;background:transparent!important;box-shadow:none!important;--bs-table-accent-bg:transparent;text-align:left!important;font-size:13px;line-height:1.25;color:#5f5f5f!important;order:10;white-space:nowrap}
     html.avcx-touch .avcx-table tbody tr>td:empty{display:none}
-    html.avcx-touch .avcx-table tbody td[data-avcx-col="ped"]{order:1;flex:1 1 auto;min-width:0;white-space:normal!important;font-size:19px;font-weight:700;color:#111!important}
+    html.avcx-touch .avcx-table tbody td[data-avcx-col="ped"]{order:1;flex:1 1 auto;min-width:0;white-space:normal!important;font-size:18px;font-weight:700;color:#111!important}
     html.avcx-touch .avcx-table tbody td.avcx-stcell{order:2;flex:0 1 auto;text-align:right!important;font-size:14px;font-weight:600;color:#111!important}
     html.avcx-touch .avcx-table tbody td.avcx-stcell[data-avcx-ts]::after{text-align:right!important;font-size:13px!important;font-weight:400}
     /* 0.138: estatus corto (data-avcx-sh) y hora a un lado (data-avcx-tsh, sin fecha si es de hoy); si no cabe, la hora baja a otro renglón */
@@ -3139,18 +3141,21 @@
     html.avcx-touch .avcx-table tbody td.avcx-stcell[data-avcx-sh]{font-size:0!important}
     html.avcx-touch .avcx-table tbody td.avcx-stcell[data-avcx-sh]::before{content:attr(data-avcx-sh);order:2;font-size:14px}
     html.avcx-touch .avcx-table tbody tr[data-avcx-status] td.avcx-stcell[data-avcx-tsh]::after{content:"· " attr(data-avcx-tsh);order:3;display:inline;white-space:nowrap;margin:0}
-    html.avcx-touch .avcx-table tbody td[data-avcx-col="rs"]{order:4;flex:1 1 100%;min-width:0;max-width:none!important;white-space:normal!important;font-size:16px;font-weight:500;color:#111!important;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+    html.avcx-touch .avcx-table tbody td[data-avcx-col="rs"]{order:4;flex:1 1 100%;min-width:0;max-width:none!important;white-space:normal!important;font-size:15px;font-weight:500;color:#111!important;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
     html.avcx-touch .avcx-table tbody td[data-avcx-col="rfc"]{order:5;white-space:normal!important}
     html.avcx-touch .avcx-table tbody td.avcx-folcell{order:7}
     html.avcx-touch .avcx-table tbody td.avcx-aducell{order:8}
     html.avcx-touch .avcx-table tbody td.avcx-tipcell{order:9}
     html.avcx-touch .avcx-table tbody td.avcx-modcell{order:10;font-size:15px}
-    html.avcx-touch .avcx-table tbody td.avcx-actcell{order:12;flex:1 1 100%;display:flex!important;justify-content:space-around;align-items:center;margin:6px -12px 0!important;margin-top:2px!important;border-top:1px solid transparent!important;visibility:hidden;transition:visibility 0s .2s,border-color 0s .2s,margin-top .2s}
+    html.avcx-touch .avcx-table tbody td.avcx-actcell{order:12;flex:1 1 100%;display:flex!important;justify-content:space-around;align-items:center;margin:4px -10px 0!important;border-top:1px solid #e6e6e6!important}
     /* 0.141: la barra de botones va plegada; un toque en la tarjeta la abre (tr.avcx-open, una a la vez). Flecha a un lado del estatus. */
-    /* 0.142: se pliegan los hijos (alto 0), no la celda: el max-height de la celda no se respetaba en Firefox y quedaba la barra vacía */
-    html.avcx-touch .avcx-table tbody td.avcx-actcell>*{height:0;min-height:0!important;overflow:hidden;transition:height .2s ease-out}
-    html.avcx-touch .avcx-table tbody tr.avcx-open>td.avcx-actcell{margin-top:6px!important;visibility:visible;border-top-color:#e6e6e6!important;transition:margin-top .2s}
-    html.avcx-touch .avcx-table tbody tr.avcx-open>td.avcx-actcell>*{height:36px}
+    /* 0.144: plegada = display:none (alto y visibilidad no bastaban en Firefox); al abrir entra deslizándose con una animación CSS */
+    html.avcx-touch .avcx-table tbody tr:not(.avcx-open)>td.avcx-actcell{display:none!important}
+    html.avcx-touch .avcx-table tbody tr.avcx-open>td.avcx-actcell{animation:avcx-bar-in .18s ease-out}
+    @keyframes avcx-bar-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+    html.avcx-touch .avcx-table tbody tr:not(.avcx-open){padding-bottom:6px}
+    /* 0.144: el toque deja la fila en :hover y el verde del hover de escritorio pintaba cada celda (parecía texto seleccionado) */
+    html.avcx-touch .avcx-table tbody tr[data-avcx]:hover>td,html.avcx-touch .avcx-table tbody tr[data-avcx]>td{background-color:transparent!important}
     html.avcx-touch .avcx-table tbody tr{-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
     html.avcx-touch .avcx-table tbody td[data-avcx-col="ped"]::after{content:"\\f107";float:right;font:900 16px/1.6 "Font Awesome 5 Free";color:#888;transition:transform .2s}
     html.avcx-touch .avcx-table tbody tr.avcx-open>td[data-avcx-col="ped"]::after{transform:rotate(180deg)}
@@ -3166,7 +3171,7 @@
     html.avcx-touch .avcx-table tbody tr[data-avcx-exp]>td{color:#888!important}
     html.avcx-touch .avcx-table.avcx-hidedel tr[data-avcx-del],html.avcx-touch .avcx-table.avcx-hideexp tr[data-avcx-exp]{display:none!important}
     html.avcx-touch .avcx-split-scroll{overflow-x:hidden!important}
-    html.avcx-touch .avcx-splitbar{font-size:15px;padding:9px 12px}
+    html.avcx-touch .avcx-splitbar{font-size:14px;padding:6px 12px} /* 0.145: tarjetas compactas (B) */
     html.avcx-touch #avcx-deltoggle,html.avcx-touch #avcx-exptoggle,html.avcx-touch #avcx-splittoggle,html.avcx-touch #avcx-notiftoggle,html.avcx-touch #avcx-debugtoggle{padding:6px 0;font-size:15px}
     html.avcx-touch #avcx-deltoggle input,html.avcx-touch #avcx-exptoggle input,html.avcx-touch #avcx-splittoggle input,html.avcx-touch #avcx-notiftoggle input,html.avcx-touch #avcx-debugtoggle input{width:20px;height:20px}
   `;
@@ -3176,7 +3181,17 @@
     // 0.141: el portal no declara el ancho del celular y el navegador lo dibujaba a ~800 px y lo encogía (todo a la mitad). Se fija el ancho real.
     let vp = document.querySelector('meta[name="viewport"]');
     if (!vp) { vp = document.createElement('meta'); vp.name = 'viewport'; document.head.appendChild(vp); }
-    vp.content = 'width=device-width, initial-scale=1';
+    // 0.145: ancho dinámico según el equipo y la orientación (se recalcula solo al girar, sin temporizadores)
+    const setVp = () => {
+      const sw = screen.width, sh = screen.height;
+      const land = screen.orientation && /landscape/.test(screen.orientation.type);
+      const w = land ? Math.max(sw, sh) : Math.min(sw, sh);
+      const c = w && w < MOBILE_MIN_WIDTH ? 'width=' + MOBILE_MIN_WIDTH : 'width=device-width, initial-scale=1';
+      if (vp.content !== c) vp.content = c;
+    };
+    setVp();
+    if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', setVp);
+    else addEventListener('orientationchange', setVp);
   }
 
   const tip = document.createElement('div');
