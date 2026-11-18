@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.141
+// @version      0.142
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -3143,9 +3143,13 @@
     html.avcx-touch .avcx-table tbody td.avcx-aducell{order:8}
     html.avcx-touch .avcx-table tbody td.avcx-tipcell{order:9}
     html.avcx-touch .avcx-table tbody td.avcx-modcell{order:10;font-size:15px}
-    html.avcx-touch .avcx-table tbody td.avcx-actcell{order:12;flex:1 1 100%;display:flex!important;justify-content:space-around;align-items:center;margin:6px -12px 0!important;border-top:1px solid transparent!important;max-height:8px;overflow:hidden;visibility:hidden;transition:max-height .2s ease-out,visibility 0s .2s,border-color 0s .2s}
+    html.avcx-touch .avcx-table tbody td.avcx-actcell{order:12;flex:1 1 100%;display:flex!important;justify-content:space-around;align-items:center;margin:6px -12px 0!important;margin-top:2px!important;border-top:1px solid transparent!important;visibility:hidden;transition:visibility 0s .2s,border-color 0s .2s,margin-top .2s}
     /* 0.141: la barra de botones va plegada; un toque en la tarjeta la abre (tr.avcx-open, una a la vez). Flecha a un lado del estatus. */
-    html.avcx-touch .avcx-table tbody tr.avcx-open>td.avcx-actcell{max-height:48px;visibility:visible;border-top-color:#e6e6e6!important;transition:max-height .2s ease-out}
+    /* 0.142: se pliegan los hijos (alto 0), no la celda: el max-height de la celda no se respetaba en Firefox y quedaba la barra vacía */
+    html.avcx-touch .avcx-table tbody td.avcx-actcell>*{height:0;min-height:0!important;overflow:hidden;transition:height .2s ease-out}
+    html.avcx-touch .avcx-table tbody tr.avcx-open>td.avcx-actcell{margin-top:6px!important;visibility:visible;border-top-color:#e6e6e6!important;transition:margin-top .2s}
+    html.avcx-touch .avcx-table tbody tr.avcx-open>td.avcx-actcell>*{height:36px}
+    html.avcx-touch .avcx-table tbody tr{-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
     html.avcx-touch .avcx-table tbody td[data-avcx-col="ped"]::after{content:"\\f107";float:right;font:900 16px/1.6 "Font Awesome 5 Free";color:#888;transition:transform .2s}
     html.avcx-touch .avcx-table tbody tr.avcx-open>td[data-avcx-col="ped"]::after{transform:rotate(180deg)}
     html.avcx-touch,html.avcx-touch body{overflow-x:clip}
@@ -3470,6 +3474,12 @@
         tactil: IS_TOUCH,
       };
     } catch (e) { info.razon_social = { error: e.message }; }
+    try { // 0.142: escala de la página en celular (ancho que usa el navegador y qué elementos lo ensanchan)
+      const de = document.documentElement, vw = de.clientWidth, anchos = [];
+      if (de.scrollWidth > vw) document.body.querySelectorAll('*').forEach(n => { if (n.scrollWidth > vw + 2 && anchos.length < 8) anchos.push((n.tagName + (n.id ? '#' + n.id : '') + (typeof n.className === 'string' && n.className ? '.' + n.className.trim().split(/\s+/).slice(0, 3).join('.') : '')) + ' ' + n.scrollWidth); });
+      const vps = [...document.querySelectorAll('meta[name="viewport"]')].map(m => m.content);
+      info.pantalla = { viewport: vps, innerWidth: innerWidth, clientWidth: vw, scrollWidth: de.scrollWidth, screenWidth: screen.width, dpr: devicePixelRatio, escala: window.visualViewport ? visualViewport.scale : null, ua_movil: /Mobi|Android/i.test(navigator.userAgent), anchos };
+    } catch (e) { info.pantalla = { error: e.message }; }
     const s = JSON.stringify(info, null, 1);
     if (await copyText(s)) {
       toast('Diagnóstico copiado al portapapeles. Revisa que no incluya datos que no quieras compartir.');
