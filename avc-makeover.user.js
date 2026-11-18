@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.130
+// @version      0.131
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -215,6 +215,11 @@
   const TIPO_OP_ON = true;                              // false = se ve el texto completo del portal
   const TIPO_OP_COL_RE = /^tipo\s+(de\s+)?operacion\b/; // encabezado de la columna Tipo de operación
   const DOC_COL_RE = /^documento\b/;                    // encabezado de la columna Documento
+  // 0.131: Modalidad con ícono de Font Awesome (el que ya carga el portal): camión = Vehicular, carretilla = Peatonal, tren = Ferroviario,
+  // computadora con código = Virtual; el texto queda en el tooltip. Una modalidad que no esté en la lista se queda con su texto. Solo visual: una vez por fila, sin peticiones ni temporizadores.
+  const MOD_ICON_ON = true;                             // false = se ve el texto del portal
+  const MOD_COL_RE = /^modalidad\b/;                   // encabezado de la columna Modalidad
+  const MOD_ICONS = [[/vehicular/, 'fas fa-truck'], [/peatonal/, 'fas fa-dolly'], [/ferroviari/, 'fas fa-train'], [/virtual/, 'fas fa-laptop-code']];
   // 0.126: títulos cortos en el encabezado (solo visual, por CSS: el texto real se conserva para detectar columnas; el completo queda en el tooltip)
   const HEAD_SHORT = [[/^folio\b/, 'Folio'], [TIPO_OP_COL_RE, 'Tipo'], [/^modalidad\b/, 'Modalidad']];
   // Vista imprimible del AVC: botón de impresora en cada fila. Arma EN LOCAL (sin captcha) una representación gráfica con los datos del servicio web oficial de la ANAM,
@@ -1370,6 +1375,31 @@
     return changed;
   }
 
+  // 0.131: ícono de Modalidad (ver MOD_ICONS). Vacía los nodos de texto (characterData, no despierta al MutationObserver) y agrega el <i>
+  // (el observador ignora ese alta: clase avcx-modic). Marca la fila con data-avcx-mod para no repetirlo.
+  function fmtModalidad(table, headRow) {
+    if (!MOD_ICON_ON || !headRow) return;
+    const heads = [...headRow.cells];
+    const mi = heads.findIndex(th => MOD_COL_RE.test(norm(th.textContent)));
+    if (mi < 0) return;
+    table.querySelectorAll('tbody tr').forEach(row => {
+      if (row.dataset.avcxMod || row.cells.length !== heads.length) return;
+      const td = row.cells[mi];
+      const raw = clean(td.textContent);
+      const m = MOD_ICONS.find(([re]) => re.test(norm(raw)));
+      row.dataset.avcxMod = '1';
+      if (!m) return;
+      const w = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n; n = w.nextNode()) n.nodeValue = '';
+      const ic = document.createElement('i');
+      ic.className = m[1] + ' avcx-modic';
+      ic.setAttribute('aria-label', raw);
+      td.title = raw;
+      td.classList.add('avcx-modcell');
+      td.appendChild(ic);
+    });
+  }
+
   // Oculta las columnas de HIDE_COLS y reformatea la aduana, ubicándolas por el texto del encabezado.
   // Se aplica fila por fila una sola vez, cuando la fila ya tiene tantas celdas como el encabezado.
   function tweakColumns(table, headRow) {
@@ -2497,6 +2527,7 @@
 
     if (tweakColumns(table, headRow)) changed = true;
     if (fmtTipoOp(table, headRow)) changed = true;
+    fmtModalidad(table, headRow);
     shortHeads(headRow);
     hideFilterCells(table, headRow);
     paintStatus(table, headRow);
@@ -3011,6 +3042,7 @@
     .avcx-table tr[data-avcx-exp]>td,.avcx-table tr[data-avcx-exp]:hover>td{background-color:#eeeeee!important;color:#888!important}
     .avcx-table tr[data-avcx-extra][data-avcx-status="warn"] .avcx-stcell::after{content:" · de otra hoja";font-size:.85em;color:#8a6d00}
     .avcx-table tr[data-avcx-exp] .avcx-stcell::after{content:" · Vencido " attr(data-avcx-exp);font-size:.85em;color:#666}
+    .avcx-table td.avcx-modcell{text-align:center} /* 0.131: ícono de Modalidad */
     .avcx-table tr[data-avcx-status="warn"] .avcx-cpy{display:none!important} /* 0.130: sin "Copiar resultado" en No presentados (vuelve solo si cambia el estatus) */
     .avcx-table tr[data-avcx-long]>td,.avcx-table tr[data-avcx-long]:hover>td{background-color:#ef9a9a!important}
     .avcx-table tr[data-avcx-long] .avcx-stcell[data-avcx-ts]::after{color:#b71c1c!important;font-weight:700}
@@ -4943,7 +4975,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   /* ================= ARRANQUE ================= */
   let t0;
   new MutationObserver(ms => {
-    if (ms.every(m => tip.contains(m.target) || toastEl.contains(m.target) || bannerEl.contains(m.target) || (panel && panel.contains(m.target)) ||
+    if (ms.every(m => (m.addedNodes.length === 1 && !m.removedNodes.length && m.addedNodes[0].classList && m.addedNodes[0].classList.contains('avcx-modic')) || tip.contains(m.target) || toastEl.contains(m.target) || bannerEl.contains(m.target) || (panel && panel.contains(m.target)) ||
         (m.target.closest && m.target.closest('#avcx-deltoggle, #avcx-exptoggle, #avcx-splittoggle, #avcx-notiftoggle, #avcx-debugtoggle, .avcx-filtbar, #avcx-nav, #avcx-split, .avcx-splitbar, #avcx-print, #avcx-ravc, #avcx-drop')))) return;
     perf.mo++;
     clearTimeout(t0);
