@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.145
+// @version      0.147
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -1540,7 +1540,7 @@
   let lastOkAt = Date.now();                                 // hora de la última actualización correcta del listado (al cargar la página cuenta como correcta)
   let delN = 0;                                              // cuántos AVC eliminados hay en el listado actual
   let hideExpired = EXPIRED_ON && store.get('hidexp', HIDE_EXPIRED_DEFAULT ? '1' : '0') === '1'; // casilla "Ocultar No presentados vencidos" (persistente)
-  let daySum = '';                                           // texto del resumen del día (DAY_SUM_ON)
+  let daySum = '', dayNums = null; // texto del resumen del día (DAY_SUM_ON). 0.147: dayNums = [despachados, reconocimiento, por presentar] para el resumen corto en celular
   let expN = 0;                                              // cuántos No presentados vencidos hay en el listado actual
   const rowHidden = r => !!((hideDeleted && r.dataset.avcxDel) || (hideExpired && r.dataset.avcxExp)); // filas ocultas por las casillas
 
@@ -1614,12 +1614,26 @@
       (hideExpired && expN ? ` · ${expN} vencido${expN === 1 ? '' : 's'} oculto${expN === 1 ? '' : 's'}` : '');
   };
   const barTitle = el => (filterSnap.get(el) || []).map(a => (a.k ? a.k + ': ' : '') + a.v).join('\n');
+  // 0.147: en celular, con los filtros cerrados, la barra va en un renglón: valores activos · despachados/reconocimiento/por presentar (en los colores de las tablas) · hora
+  const escB = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const barShort = el => {
+    const act = filterSnap.get(el) || [];
+    const cut = s => (s.length > FILTER_VALUE_MAX ? s.slice(0, FILTER_VALUE_MAX - 1) + '…' : s);
+    return '▸ Filtros' + (act.length ? ' · ' + escB(act.map(a => cut(a.v)).join(', ')) : '') +
+      (dayNums ? ` · <b class="avcx-n-ok">${dayNums[0]}</b> / <b class="avcx-n-bad">${dayNums[1]}</b> / <b class="avcx-n-warn">${dayNums[2]}</b>` : '') +
+      (AUTO_REFRESH_SEC > 0 && lastOkAt ? ' · ' + fmtHora(lastOkAt).slice(0, 5) : '');
+  };
+  const setBar = (bar, open, el) => {
+    if (IS_TOUCH && !open) { const h = barShort(el); if (bar.dataset.avcxH !== h) { bar.dataset.avcxH = h; bar.innerHTML = h; } return; }
+    const t = barText(open, el);
+    if (bar.dataset.avcxH || bar.textContent !== t) { delete bar.dataset.avcxH; bar.textContent = t; }
+  };
 
   function setFilterOpen(el, bar, open) {
     filterOpen = open;
     el.style.display = open ? '' : 'none';
     bar.setAttribute('aria-expanded', String(open));
-    bar.textContent = barText(open, el);
+    setBar(bar, open, el);
     bar.title = barTitle(el);
   }
 
@@ -1673,8 +1687,7 @@
   function refreshBars() {
     document.querySelectorAll('.avcx-filtbar').forEach(bar => {
       const fe = bar.nextElementSibling;
-      const t = barText(bar.getAttribute('aria-expanded') === 'true', fe);
-      if (bar.textContent !== t) bar.textContent = t;
+      setBar(bar, bar.getAttribute('aria-expanded') === 'true', fe);
       const tt = barTitle(fe);
       if (bar.title !== tt) bar.title = tt;
     });
@@ -2185,7 +2198,8 @@
       try { c = JSON.parse(store.get('daycnt', '{}')); } catch (_) { c = null; }
       if (c && c.t && c.k === d.key && Date.now() - c.t < DAY_SUM_MAX_AGE_MS && Number.isFinite(c.b) && Number.isFinite(c.w)) { bad = c.b; warn = c.w; }
       t = `Hoy: ${ok} despachado${ok === 1 ? '' : 's'} · ${bad} en reconocimiento · ${warn} por presentar`;
-    }
+      dayNums = [ok, bad, warn];
+    } else dayNums = null;
     if (t !== daySum) { daySum = t; refreshBars(); }
   }
   function sortRecent() {
@@ -2232,6 +2246,7 @@
       g.n = rows.filter(visible).length;
       const txt = `${splitArrow(g.cls)} ${g.title} (${g.n})`;
       if (g.bar.textContent !== txt) g.bar.textContent = txt;
+      g.bar.classList.toggle('avcx-sb-empty', !g.n); // 0.147: franja delgada en celular (CSS)
       g.bar.setAttribute('aria-expanded', String(!splitCollapsed[g.cls]));
       const d = g.n && !splitCollapsed[g.cls] ? '' : 'none';
       if (g.wrap.style.display !== d) g.wrap.style.display = d;
@@ -2485,8 +2500,21 @@
     perf.enh++;
     try { return enhanceCore(); } finally { perf.enhMs += performance.now() - t; }
   }
+  // 0.147: el botón "subir" del portal se busca una vez (hasta 20 pasadas) y se marca; en celular el CSS lo deja chico y semitransparente
+  let toTopTries = 0;
+  function markToTop() {
+    if (!IS_TOUCH || toTopTries >= 20) return;
+    toTopTries++;
+    const ic = document.querySelector('#back-to-top,#btn-back-to-top,.back-to-top,.btn-back-to-top,#scrollTop,.scroll-top,.scrollup,#scrollUp,a>i.fa-arrow-up,button>i.fa-arrow-up,a>i.fa-chevron-up,button>i.fa-chevron-up,a>i.fa-angle-up,button>i.fa-angle-up,a>i.fa-angle-double-up,button>i.fa-angle-double-up,a>i.fa-caret-up,button>i.fa-caret-up');
+    const b = ic && (ic.matches('a,button') ? ic : ic.closest('a,button'));
+    if (!b || b.closest('#avcx-nav,#avcx-panel,.avcx-table')) return;
+    if (getComputedStyle(b).position !== 'fixed') return;
+    b.classList.add('avcx-totop');
+    toTopTries = 20;
+  }
   function enhanceCore() {
     setupSidebar();
+    markToTop();
     moveGenBtn();
     hidePageTitle();
     const table = findTable();
@@ -3119,7 +3147,7 @@
     html.avcx-touch #avcx-tip{pointer-events:auto;left:8px!important;right:8px;top:auto!important;bottom:8px;max-width:none;max-height:55vh;overflow:auto;font-size:13px}
     html.avcx-touch #avcx-toast{left:8px;right:8px;max-width:none}
     html.avcx-touch #avcx-banner{font-size:12px;padding:6px 10px}
-    html.avcx-touch .avcx-filtbar{padding:10px 12px;font-size:14px}
+    html.avcx-touch .avcx-filtbar{padding:8px 12px;font-size:14px}
     /* 0.136-0.137: en celular (html.avcx-touch) cada fila es una tarjeta blanca con franja del color del estatus: pedimento y estatus; razón social;
        RFC, folio, aduana, tipo y modalidad; y abajo los botones en una barra. Solo CSS; los ::before/::after de la fila son saltos de renglón (order).
        Las celdas ocultas por el script (style display:none) siguen ocultas. Encabezado y fila de búsqueda por columna van ocultos en celular. */
@@ -3172,6 +3200,13 @@
     html.avcx-touch .avcx-table.avcx-hidedel tr[data-avcx-del],html.avcx-touch .avcx-table.avcx-hideexp tr[data-avcx-exp]{display:none!important}
     html.avcx-touch .avcx-split-scroll{overflow-x:hidden!important}
     html.avcx-touch .avcx-splitbar{font-size:14px;padding:6px 12px} /* 0.145: tarjetas compactas (B) */
+    html.avcx-touch .avcx-splitbar.avcx-sb-empty{font-size:11px;font-weight:400;line-height:16px;padding:0 12px;margin:4px 0} /* 0.147: sección vacía = franja delgada */
+    html.avcx-touch .avcx-filtbar[aria-expanded="false"]{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    html.avcx-touch .avcx-filtbar .avcx-n-ok{color:#2e7d32}
+    html.avcx-touch .avcx-filtbar .avcx-n-bad{color:#c62828}
+    html.avcx-touch .avcx-filtbar .avcx-n-warn{color:#b07d00}
+    html.avcx-touch .avcx-totop{width:34px!important;height:34px!important;min-width:0!important;min-height:0!important;padding:0!important;border:0!important;border-radius:50%!important;background:rgba(60,60,60,.45)!important;color:#fff!important;display:flex!important;align-items:center;justify-content:center;font-size:16px!important;box-shadow:none!important;opacity:1}
+    html.avcx-touch .avcx-totop i{color:#fff!important;font-size:16px!important}
     html.avcx-touch #avcx-deltoggle,html.avcx-touch #avcx-exptoggle,html.avcx-touch #avcx-splittoggle,html.avcx-touch #avcx-notiftoggle,html.avcx-touch #avcx-debugtoggle{padding:6px 0;font-size:15px}
     html.avcx-touch #avcx-deltoggle input,html.avcx-touch #avcx-exptoggle input,html.avcx-touch #avcx-splittoggle input,html.avcx-touch #avcx-notiftoggle input,html.avcx-touch #avcx-debugtoggle input{width:20px;height:20px}
   `;
@@ -3186,7 +3221,9 @@
       const sw = screen.width, sh = screen.height;
       const land = screen.orientation && /landscape/.test(screen.orientation.type);
       const w = land ? Math.max(sw, sh) : Math.min(sw, sh);
-      const c = w && w < MOBILE_MIN_WIDTH ? 'width=' + MOBILE_MIN_WIDTH : 'width=device-width, initial-scale=1';
+      // 0.146: con el ancho se da la escala inicial (si no, Firefox se quedaba en 1 y la página cargaba con zoom); el usuario puede acercar
+      const k = w && w < MOBILE_MIN_WIDTH ? Math.round(w / MOBILE_MIN_WIDTH * 1000) / 1000 : 0;
+      const c = k ? 'width=' + MOBILE_MIN_WIDTH + ', initial-scale=' + k + ', minimum-scale=' + k : 'width=device-width, initial-scale=1';
       if (vp.content !== c) vp.content = c;
     };
     setVp();
