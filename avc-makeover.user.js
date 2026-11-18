@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.135
+// @version      0.136
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -139,6 +139,7 @@
   // portal abierto, aunque sea en otra pestaña). Se activan con la casilla "Avisos de escritorio" de la sección de filtros (el navegador pide permiso una vez).
   // Son locales (API Notification del navegador): no se envía nada a ningún lado. El de Reconocimiento se queda en pantalla hasta que lo cierres.
   const NOTIFY_ON = true;             // false = sin la casilla ni avisos
+  const CARD_GAP_PX = 6;              // 0.136: separación entre tarjetas en celular (la usan el CSS y el alto de las tablas separadas)
   const SPLIT_MAX_ROWS = 4;           // renglones visibles por tabla; si hay más, scroll vertical (0 = sin límite)
   // Casilla "Separar por estatus" (dentro de la sección de filtros, junto a "Ocultar AVC eliminados"): activa o desactiva la vista de tres tablas al momento;
   // desactivada, todos los AVC vuelven a una sola tabla, en su orden original. SPLIT_DEFAULT = cómo carga: true = activada (tres tablas), false = desactivada (una tabla).
@@ -1330,6 +1331,7 @@
     });
     if (!full) return false;
     cell.title = full + '\nClic: copiar el folio completo';
+    cell.classList.add('avcx-folcell'); // 0.136: tarjetas en celular
     return true;
   }
 
@@ -1352,6 +1354,7 @@
     table.querySelectorAll('tbody tr').forEach(row => {
       if (row.dataset.avcxTipo || row.cells.length !== heads.length) return;
       const td = row.cells[ti];
+      td.classList.add('avcx-tipcell'); // 0.136: tarjetas en celular
       const raw = clean(td.textContent);
       const docRaw = di >= 0 ? clean(row.cells[di].textContent) : '';
       const t = norm(raw);
@@ -1388,6 +1391,7 @@
       const raw = clean(td.textContent);
       const m = MOD_ICONS.find(([re]) => re.test(norm(raw)));
       row.dataset.avcxMod = '1';
+      td.classList.add('avcx-modcell'); // 0.136: también sin ícono (tarjetas en celular)
       if (!m) return;
       const w = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
       for (let n = w.nextNode(); n; n = w.nextNode()) n.nodeValue = '';
@@ -1418,7 +1422,7 @@
       if (row.dataset.avcxTw || row.cells.length !== heads.length) return;
       row.dataset.avcxTw = '1';
       hide.forEach(i => { row.cells[i].style.display = 'none'; });
-      if (adu >= 0) fmtAduana(row.cells[adu]);
+      if (adu >= 0) { row.cells[adu].classList.add('avcx-aducell'); fmtAduana(row.cells[adu]); } // 0.136: clase para las tarjetas
       changed = true;
     });
     return changed;
@@ -1864,11 +1868,12 @@
     if (w.style.display === 'none') return; // oculta o vacía: se mide al mostrarla
     const rows = [...g.tbody.rows].filter(r => !rowHidden(r));
     const head = g.thead.offsetHeight;
-    if (!head || !rows.length) return; // sin medidas (pestaña o contenedor oculto): el ResizeObserver vuelve a llamar cuando haya
+    if ((!head && !IS_TOUCH) || !rows.length) return; // 0.136: en celular (tarjetas) el encabezado va oculto // sin medidas (pestaña o contenedor oculto): el ResizeObserver vuelve a llamar cuando haya
     let v = '';
     if (SPLIT_MAX_ROWS > 0 && rows.length > SPLIT_MAX_ROWS) {
       let h = head;
-      rows.slice(0, SPLIT_MAX_ROWS).forEach(r => { h += r.offsetHeight; });
+      rows.slice(0, SPLIT_MAX_ROWS).forEach(r => { h += r.offsetHeight + (IS_TOUCH ? CARD_GAP_PX : 0); });
+      if (h <= head) return; // sin medidas todavía
       v = Math.ceil(h) + 2 + 'px';
     }
     if (w.style.maxHeight !== v) w.style.maxHeight = v;
@@ -3103,6 +3108,33 @@
     html.avcx-touch #avcx-toast{left:8px;right:8px;max-width:none}
     html.avcx-touch #avcx-banner{font-size:12px;padding:6px 10px}
     html.avcx-touch .avcx-filtbar{padding:10px 12px;font-size:14px}
+    /* 0.136: en celular (html.avcx-touch) cada fila es una tarjeta: pedimento y estatus arriba, RFC y razón social (2 renglones), y folio, aduana, tipo, modalidad y botones.
+       Solo CSS; los ::before/::after de la fila son saltos de renglón (order). Las celdas ocultas por el script (style display:none) siguen ocultas. */
+    html.avcx-touch .avcx-table,html.avcx-touch .avcx-table tbody{display:block!important;width:100%!important;min-width:0!important}
+    html.avcx-touch .avcx-table thead tr:not(:has(input,select)){display:none!important}
+    html.avcx-touch .avcx-table tbody tr{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:10px;row-gap:3px;margin:0 0 ${CARD_GAP_PX}px;padding:10px 12px;border-radius:8px;background:#f3f3f3}
+    html.avcx-touch .avcx-table tbody tr::before,html.avcx-touch .avcx-table tbody tr::after{content:"";flex-basis:100%;height:0;order:3}
+    html.avcx-touch .avcx-table tbody tr::after{order:6}
+    html.avcx-touch .avcx-table tbody tr>td{display:block;padding:0!important;border:0!important;background:transparent!important;text-align:left!important;font-size:13px;line-height:1.3;color:#555!important;order:12;white-space:nowrap}
+    html.avcx-touch .avcx-table tbody td[data-avcx-col="ped"]{order:1;flex:1 1 auto;min-width:0;white-space:normal!important;font-size:18px;font-weight:600;color:#111!important}
+    html.avcx-touch .avcx-table tbody td.avcx-stcell{order:2;flex:0 1 auto;text-align:right!important;font-size:15px;color:#111!important}
+    html.avcx-touch .avcx-table tbody td.avcx-stcell[data-avcx-ts]::after{text-align:right!important;font-size:13px!important}
+    html.avcx-touch .avcx-table tbody td[data-avcx-col="rfc"]{order:4;font-size:15px;color:#111!important}
+    html.avcx-touch .avcx-table tbody td[data-avcx-col="rs"]{order:5;flex:1 1 55%;min-width:0;max-width:none!important;white-space:normal!important;font-size:15px;color:#111!important;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+    html.avcx-touch .avcx-table tbody td.avcx-folcell{order:7}
+    html.avcx-touch .avcx-table tbody td.avcx-aducell{order:8}
+    html.avcx-touch .avcx-table tbody td.avcx-tipcell{order:9}
+    html.avcx-touch .avcx-table tbody td.avcx-modcell{order:10;font-size:16px}
+    html.avcx-touch .avcx-table tbody td.avcx-actcell{order:11;margin-left:auto;font-size:16px}
+    html.avcx-touch .avcx-table tbody tr[data-avcx-status="ok"]{background:#c8e6c9}
+    html.avcx-touch .avcx-table tbody tr[data-avcx-status="bad"]{background:#ffcdd2}
+    html.avcx-touch .avcx-table tbody tr[data-avcx-status="warn"]{background:#fff59d}
+    html.avcx-touch .avcx-table tbody tr[data-avcx-long]{background:#ef9a9a}
+    html.avcx-touch .avcx-table tbody tr[data-avcx-exp]{background:#eeeeee}
+    html.avcx-touch .avcx-table tbody tr[data-avcx-exp]>td{color:#888!important}
+    html.avcx-touch .avcx-table.avcx-hidedel tr[data-avcx-del],html.avcx-touch .avcx-table.avcx-hideexp tr[data-avcx-exp]{display:none!important}
+    html.avcx-touch .avcx-split-scroll{overflow-x:hidden!important}
+    html.avcx-touch .avcx-splitbar{font-size:15px;padding:9px 12px}
     html.avcx-touch #avcx-deltoggle,html.avcx-touch #avcx-exptoggle,html.avcx-touch #avcx-splittoggle,html.avcx-touch #avcx-notiftoggle,html.avcx-touch #avcx-debugtoggle{padding:6px 0;font-size:15px}
     html.avcx-touch #avcx-deltoggle input,html.avcx-touch #avcx-exptoggle input,html.avcx-touch #avcx-splittoggle input,html.avcx-touch #avcx-notiftoggle input,html.avcx-touch #avcx-debugtoggle input{width:20px;height:20px}
   `;
