@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.127
+// @version      0.128
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -3766,6 +3766,7 @@
     #avcx-print .avcx-print-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:#fff;border-bottom:1px solid #999}
     #avcx-print .avcx-pbtn{font:13px system-ui,sans-serif;padding:5px 12px;border:1px solid #999;border-radius:4px;background:#f3f3f3;color:#222;cursor:pointer}
     #avcx-print .avcx-pbtn:hover{background:#e6e6e6}
+    #avcx-print .avcx-print-fmt{font:12px system-ui,sans-serif;color:#222}
     #avcx-print .avcx-print-warn{color:#a05a00;font-size:12px;flex:1 1 300px}
     #avcx-print .avcx-print-frame{flex:1;width:min(900px,100%);align-self:center;border:0;background:#fff}
     .avcx-prt{margin-left:6px;cursor:pointer}
@@ -4009,6 +4010,34 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (Object.values(dd).some(v => v && typeof v === 'object' && (v.avc_inicio_transito || v.aduana_inicio))) note = note || 'el tránsito trae AVC/aduana de inicio y no sé si va en esta cadena; compárala con el PDF del portal';
     return { text: groups.map(g => '|' + g.join('|') + '|').join(' '), note };
   }
+  // 0.128: formato CSAAIWIN de la "Información del tipo de documento" (opcional, por defecto; la representación gráfica corre a cargo del agente aduanal).
+  // VERIFICADO con AVC reales de CSAAIWIN (17-11-2026): ||N|aut-ped|aut-ped|| (3 normales) y ||N|aut-ped-consecutivo-COVE|...|| (2 y 3 remesas, también de
+  // pedimentos distintos). N = número de documentos; sin tipo, plazo, importe ni UMC; orden ASCENDENTE por pedimento y luego por consecutivo.
+  // Solo normales y remesas: con otros tipos devuelve null (se usa el formato ANAM). Mezcla de normales con remesas: sin verificar (nota).
+  const INFO_FMT_KEY = 'infofmt'; // 'csaai' (por defecto) o 'anam'
+  const infoFmt = () => (store.get(INFO_FMT_KEY, 'csaai') === 'anam' ? 'anam' : 'csaai');
+  function infoPedimentosCsaai(j) {
+    const nodes = pedNodes(j);
+    if (!nodes.length) return null;
+    const docs = [], cats = new Set();
+    let note = '', other = false;
+    nodes.forEach(pd => PED_CATS.forEach(cat => (Array.isArray(pd[cat]) ? pd[cat] : []).forEach(r => {
+      if (!r || typeof r !== 'object') return;
+      if (cat !== 'normal' && cat !== 'remesa_previo_consolidado') { other = true; return; }
+      cats.add(cat);
+      const v = x => (x == null ? '' : clean(String(x)));
+      const aut = v(r.autorizacion) || v(j.autorizacion), ped = v(r.numero_pedimento);
+      const parts = [aut, ped];
+      if (cat === 'remesa_previo_consolidado') parts.push(v(r.consecutivo), v(r.factura));
+      if (parts.some(x => !x)) note = note || 'faltan datos en la respuesta del servicio; la cadena puede salir incompleta';
+      docs.push({ ped, c: cat === 'remesa_previo_consolidado' ? Number(r.consecutivo) || 0 : -1, t: parts.filter(Boolean).join('-') });
+    })));
+    if (other || !docs.length) return null;
+    if (cats.size > 1) note = note || 'el AVC mezcla pedimentos normales con remesas y ese caso no está verificado en formato CSAAIWIN';
+    const num = (a, b) => (Number(a) - Number(b)) || (a < b ? -1 : a > b ? 1 : 0);
+    docs.sort((a, b) => num(a.ped, b.ped) || a.c - b.c);
+    return { text: '||' + docs.length + '|' + docs.map(d => d.t).join('|') + '||', note };
+  }
 
   // Nombre sugerido para guardar la vista imprimible como PDF (sale del título de la hoja): AVC_<pedimento>[_R<remesa>[-<remesa>...]] y, si el AVC trae varios
   // pedimentos, cada uno a continuación con sus remesas: AVC_6000010_R4-5-6_6000011. El pedimento es el numero_pedimento del servicio (7 dígitos, el mismo de la cadena
@@ -4049,7 +4078,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const first = re => vals(re)[0] || '';
     const folio = clean(j.numero_avc || ctx.folio || '').toUpperCase();
     const rawMod = first(/^modalidad/i), rawDoc = first(/^tipo_documento/i);
-    const ip = infoPedimentos(j);
+    const ipC = infoFmt() === 'csaai' ? infoPedimentosCsaai(j) : null; // 0.128: formato elegido en la hoja (CSAAIWIN por defecto)
+    const ip = ipC || infoPedimentos(j);
     let info = ip.text;
     // cadena "|4|1234|6000010|3|COVE...|": primero la que empieza con |, luego una clave tipo informacion/cadena, luego cualquier texto con varios |
     if (!info) walkJson(j, (k, v) => { if (!info && typeof v === 'string' && v.trim()[0] === '|') info = v.trim(); });
@@ -4078,6 +4108,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     d.fileName = avcFileName(j, folio);
     d.warns = [];
     if (ip.note && info) d.warns.push('Información del tipo de documento: ' + ip.note + '.');
+    if (infoFmt() === 'csaai' && !ipC && info) d.warns.push('Formato CSAAIWIN solo para pedimentos normales y remesas: se usó el formato ANAM.');
     if (!folio) d.warns.push('El servicio no devolvió el número de AVC.');
     if (!d.fecha) d.warns.push('No encontré la fecha de emisión en la respuesta del servicio.');
     if (!d.placas && rawMod === '1') d.warns.push('El servicio no devolvió placas para este AVC. No las inventes: revisa el AVC en el portal.');
@@ -4143,7 +4174,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     document.removeEventListener('keydown', printKey);
   }
 
-  function showPrintView(html, warns, j, fileName) {
+  function showPrintView(html, warns, j, fileName, redo) {
     closePrint();
     printOv = mk('div');
     printOv.id = 'avcx-print';
@@ -4154,6 +4185,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     cls.type = 'button';
     cls.title = 'Cerrar (Esc)';
     bar.append(prt, cls);
+    // 0.128: formato de la "Información del tipo de documento" (se guarda en el gestor; vuelve a armar la hoja con la misma respuesta, sin consultar de nuevo)
+    if (redo) {
+      const fl = mk('label', 'avcx-print-fmt', 'Formato: ');
+      const fs = mk('select');
+      [['csaai', 'CSAAIWIN'], ['anam', 'ANAM (portal)']].forEach(([v, t]) => { const o = mk('option', '', t); o.value = v; fs.appendChild(o); });
+      fs.value = infoFmt();
+      fs.title = 'Cómo se imprime la "Información del tipo de documento"';
+      fs.addEventListener('change', () => { store.set(INFO_FMT_KEY, fs.value); redo(); });
+      fl.appendChild(fs);
+      bar.append(fl);
+    }
     // Copia SOLO la estructura de la respuesta (nombres de campos y tipos, sin valores), incluida la de la petición con la que se creó el AVC
     // (peticiones[].peticion_json). Siempre visible desde la 0.87: sirve para ajustar el script y para comparar los nombres de campo que manda
     // CSAAIWIN con los que manda "Nuevo AVC desde archivos".
@@ -4206,7 +4248,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     try {
       const j = await queue(() => fetchAvcWS(folio)); // siempre fresco: no sale de la caché
       const d = avcPrintData(j, Object.assign({ folio }, ctx));
-      showPrintView(avcPrintHtml(d), d.warns, j, d.fileName);
+      const redo = () => { const d2 = avcPrintData(j, Object.assign({ folio }, ctx)); showPrintView(avcPrintHtml(d2), d2.warns, j, d2.fileName, redo); };
+      showPrintView(avcPrintHtml(d), d.warns, j, d.fileName, redo);
     } catch (e) {
       if (DEBUG) console.warn('[AVCx] vista imprimible:', folio, e);
       if (isOutage(e)) setBanner('ws', wsOutageMsg(e));
