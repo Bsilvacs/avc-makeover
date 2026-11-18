@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.126
-// @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas, reporte de COVE), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
+// @version      0.127
+// @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @match        https://avc.anam.gob.mx/avc/*
@@ -4221,9 +4221,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   //   - Forma simplificada del pedimento (pedimentos normales)
   //   - Formato de aviso consolidado (impresión de la remesa)
   //   - Cartas porte (CFDI): de ahí salen el FOLIO FISCAL (UUID) y las placas (tracto y caja, separadas por coma)
-  //   - Importe USD y cantidad UMC de cada remesa (solo remesas): del reporte "Registro de COVE's Validados" de CSAAIWIN
-  //     o del XML de la factura de exportación (TotalUSD del complemento de comercio exterior y suma de la Cantidad de los conceptos).
+  //   - Importe USD y cantidad UMC de cada remesa (solo remesas): del XML de la factura de exportación (TotalUSD del complemento de
+  //     comercio exterior; UMC en la unidad de la tarifa, como la registra el SAAI en la remesa: ver avcfUmcSaai).
   //     Si solo hay PDF de la factura, se toma el Total USD marcado para revisar; si no hay nada, se capturan a mano.
+  //     0.127: ya no se lee el reporte "Registro de COVE's Validados" (su "Cant. UMC" es la del COVE, en la unidad de la factura).
   // Todo se lee EN ESTE EQUIPO (pdf.js incrustado, sin CDN). Nada se envía a ningún lado hasta que pulsas "Enviar a la ANAM"
   // y confirmas; entonces se manda UN AVC al servicio web oficial (POST /aviso-de-cruce) con tu token.
   // Sin carta porte el cruce es PEATONAL (solo gafete, sin TAG ni placas); con carta porte es VEHICULAR (TAG, gafete, placas y folios).
@@ -4319,27 +4320,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
   }
 
-  // Reporte "Registro de COVE's Validados" (CSAAIWIN): por COVE, total en USD (renglón de totales) y suma de "Cant. UMC"
-  function avcfParseReporte(lines) {
-    const out = [];
-    let cur = null;
-    const num = '-?\\d[\\d,]*\\.?\\d*';
-    const itemRe = new RegExp('^\\s*\\d+\\s+\\S.*?\\s(' + num + ')\\s+(\\S+)\\s+(' + num + ')\\s+(' + num + ')\\s+(' + num + ')\\s*$');
-    const totRe = new RegExp('^\\s*(' + num + ')\\s+(' + num + ')\\s*$');
-    lines.forEach(l => {
-      const f = l.match(/Factura\/Fecha:\s*(\S+)/i);
-      if (f) { cur = { factura: f[1].toUpperCase(), cove: '', umc: 0, usd: NaN, items: 0 }; out.push(cur); }
-      if (!cur) return;
-      const c = l.match(/No\.\s*COVE:\s*(COVE[A-Z0-9]{9})/i);
-      if (c) cur.cove = c[1].toUpperCase();
-      const it = l.match(itemRe);
-      if (it && !/Cons/i.test(l)) { cur.umc += avcfNum(it[1]); cur.items++; return; }
-      const tot = l.match(totRe);
-      if (tot && cur.items && isNaN(cur.usd)) cur.usd = avcfNum(tot[2]);
-    });
-    return out.filter(r => r.cove);
-  }
-
   // UUID propio del CFDI: la cadena original del timbre (||1.1|UUID|), luego las etiquetas Folio fiscal / UUID, luego el primero que no sea el IdCCP ("CCC…")
   function avcfOwnUuid(text) {
     const c = avcfDash(text).replace(/\s+/g, '');
@@ -4366,9 +4346,33 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return {
       uuid,
       usd: avcfNum(cce.getAttribute('TotalUSD')),
-      umc: by('Concepto').reduce((s, c) => s + avcfNum(c.getAttribute('Cantidad')), 0),
+      ...avcfUmcSaai(by),
       fuente: 'xml',
     };
+  }
+
+  // 0.127: "cantidad_umc" = cantidad de la REMESA en el SAAI: kg de la tarifa, aunque la UMC del pedimento y del COVE sea libras
+  // (así la transmite CSAAIWIN y así cuadra el cierre del consolidado, confirmado por el usuario con consolidados ya cerrados).
+  // Causa: el catálogo de unidades del SAAI (Apéndice 7 del Anexo 22) NO tiene libra; la libra solo existe en el catálogo del COVE.
+  // VERIFICADO 17-11-2026 con un AVC real de CSAAIWIN: conceptos en LBR y UnidadAduana 01 (kg) -> cada concepto en kg
+  // (libras x 0.45359237, TRUNCADO a 3 decimales) y luego se suman; así salió idéntico al SAAI. KGM va tal cual.
+  // Otras unidades (sin verificar): suma de CantidadAduana del complemento, marcada para revisar. Unidades de tarifa mezcladas: a mano.
+  const AVCF_LB_KG = 0.45359237;
+  const avcfR3 = x => Math.round(x * 1000) / 1000;
+  const avcfT3 = x => Math.floor(Math.round(x * 1e6) / 1000) / 1000; // trunca a 3 decimales sin errores de punto flotante
+  function avcfUmcSaai(by) {
+    const merc = by('Mercancia').filter(m => m.hasAttribute('CantidadAduana'));
+    const uas = new Set(merc.map(m => (m.getAttribute('UnidadAduana') || '').trim()));
+    const conc = by('Concepto');
+    const cu = c => (c.getAttribute('ClaveUnidad') || '').trim().toUpperCase();
+    if (uas.size === 1 && uas.has('01') && conc.length && conc.every(c => cu(c) === 'LBR' || cu(c) === 'KGM')) {
+      return { umc: avcfR3(conc.reduce((s, c) => { const q = avcfNum(c.getAttribute('Cantidad')); return s + (cu(c) === 'LBR' ? avcfT3(q * AVCF_LB_KG) : q); }, 0)) };
+    }
+    if (uas.size === 1 && merc.length) {
+      return { umc: avcfR3(merc.reduce((s, m) => s + avcfNum(m.getAttribute('CantidadAduana')), 0)), revisar: true,
+        nota: 'UMC tomada de la CantidadAduana del complemento (unidad ' + [...uas][0] + ', sin verificar): revisa que coincida con la remesa en el SAAI' };
+    }
+    return { umc: NaN, nota: 'las mercancías del complemento traen unidades de tarifa distintas (o ninguna): captura la cantidad UMC a mano como en el SAAI' };
   }
 
   // CFDI en PDF: UUID y, si se encuentra, el Total USD (se marca para revisar). La UMC queda a mano.
@@ -4414,7 +4418,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return { uuid: avcfOwnUuid(text), placas: veh.slice(0, 1).concat(rem.length ? rem : veh.slice(1)) };
   }
 
-  const AVCF_KIND = { pedimento: 'Pedimento (forma simplificada)', remesa: 'Remesa (aviso consolidado)', cartaporte: 'Carta porte', cfdi: 'Factura de exportación (CFDI)', reporte: 'Reporte de COVE de CSAAIWIN' };
+  const AVCF_KIND = { pedimento: 'Pedimento (forma simplificada)', remesa: 'Remesa (aviso consolidado)', cartaporte: 'Carta porte', cfdi: 'Factura de exportación (CFDI)', reporte: 'Reporte de COVE (no se usa)' };
 
   async function avcfReadFile(file) {
     const out = { name: file.name, kind: '', data: null, error: '' };
@@ -4437,7 +4441,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       out.kind = avcfClassify(text);
       if (out.kind === 'pedimento') out.data = avcfParsePedimento(text);
       else if (out.kind === 'remesa') out.data = avcfParseRemesa(text);
-      else if (out.kind === 'reporte') out.data = avcfParseReporte(lines);
+      else if (out.kind === 'reporte') throw new Error('el reporte de COVE ya no se usa (su UMC es la del COVE, no la del SAAI): carga el XML de la factura');
       else if (out.kind === 'cartaporte') out.data = avcfParseCartaPorte(pages, text);
       else if (out.kind === 'cfdi') out.data = avcfParseCfdiPdf(lines);
       else throw new Error('no reconocí el tipo de documento');
@@ -4452,7 +4456,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // Junta lo leído en un solo AVC: pedimentos normales, remesas (con su importe/UMC), cartas porte y avisos
   function avcfBuild(docs) {
     const m = { docs, peds: [], rems: [], cartas: [], errors: [], warns: [], aduana: '', tipoOp: '', placas: '' };
-    const cfdi = new Map(), rep = new Map(), repUuid = new Map();
+    const cfdi = new Map();
     docs.forEach(d => {
       if (d.error) { m.warns.push(`${d.name}: ${d.error} (se ignoró)`); return; }
       const x = d.data;
@@ -4467,19 +4471,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (!m.cartas.some(c => c.uuid === x.uuid)) m.cartas.push(x);
       } else if (d.kind === 'cfdi') {
         if (x.uuid && (!cfdi.has(x.uuid) || x.fuente === 'xml')) cfdi.set(x.uuid, Object.assign({ name: d.name }, x));
-      } else if (d.kind === 'reporte') {
-        x.forEach(r => { rep.set(r.cove, r); repUuid.set(r.factura, r); });
       }
     });
-    // Importe USD y UMC de cada remesa: reporte de CSAAIWIN > XML de la factura > PDF de la factura (revisar) > a mano
+    // Importe USD y UMC de cada remesa: XML de la factura > PDF de la factura (revisar) > a mano
     const used = new Set();
     m.rems.sort((a, b) => a.pedimento.localeCompare(b.pedimento) || a.consecutivo - b.consecutivo);
     m.rems.forEach(r => {
-      const rp = rep.get(r.cove) || (r.cfdi && repUuid.get(r.cfdi));
       const cf = r.cfdi && cfdi.get(r.cfdi);
       if (cf) used.add(r.cfdi);
-      if (rp && isFinite(rp.usd) && isFinite(rp.umc)) Object.assign(r, { usd: rp.usd, umc: rp.umc, fuente: 'reporte' });
-      else if (cf && cf.fuente === 'xml' && isFinite(cf.usd) && isFinite(cf.umc)) Object.assign(r, { usd: cf.usd, umc: cf.umc, fuente: 'xml' });
+      if (cf && cf.fuente === 'xml' && isFinite(cf.usd)) {
+        Object.assign(r, { usd: cf.usd, umc: cf.umc, fuente: !isFinite(cf.umc) ? 'manual' : cf.revisar ? 'xmlrev' : 'xml', ok: !cf.revisar });
+        if (cf.nota) m.warns.push(`${cf.name}: ${cf.nota}`);
+      }
       else if (cf && cf.fuente === 'pdf') Object.assign(r, { usd: cf.usd, fuente: 'pdf', ok: false });
     });
     cfdi.forEach((c, u) => { if (!used.has(u)) m.warns.push(`${c.name}: la factura ${u} no corresponde a ninguna remesa cargada (se ignoró)`); });
@@ -4698,20 +4701,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (st.rems.length) {
       const t = mk('table', 'avcx-rtab');
       t.innerHTML = '<tr><th>Pedimento</th><th>Remesa</th><th>COVE (factura)</th><th>RFC</th><th>Importe USD</th><th>Cantidad UMC</th><th>Plazo</th><th>Origen</th></tr>';
-      const SRC = { reporte: 'Reporte CSAAIWIN', xml: 'XML de la factura', pdf: 'PDF de la factura: revisa', manual: 'Captura a mano' };
+      const SRC = { xml: 'XML de la factura', xmlrev: 'XML: revisa la UMC', pdf: 'PDF de la factura: revisa', manual: 'Captura a mano' };
       st.rems.forEach(r => {
-        const tr = mk('tr', r.fuente === 'pdf' || r.fuente === 'manual' ? 'avcx-rhl' : '');
+        const tr = mk('tr', r.fuente === 'pdf' || r.fuente === 'xmlrev' || r.fuente === 'manual' ? 'avcx-rhl' : '');
         const td = (...k) => { const c = mk('td'); c.append(...k); tr.append(c); return c; };
         td(r.pedimento); td(String(r.consecutivo)); td(mk('span', 'avcx-rmono', r.cove || '—')); td(r.rfc || '—');
         td(inp(avcfFmt(r.usd), v => { r.usd = avcfNum(v); if (r.fuente === 'pdf') { r.ok = true; ok.checked = true; } }, 'USD', 'avcx-rnum'));
-        td(inp(avcfFmt(r.umc), v => { r.umc = avcfNum(v); }, 'UMC', 'avcx-rnum'));
+        td(inp(avcfFmt(r.umc), v => { r.umc = avcfNum(v); if (r.fuente === 'xmlrev') { r.ok = true; ok.checked = true; } }, 'UMC', 'avcx-rnum'));
         td(sel([['1', 'Semanal'], ['2', 'Mensual']], String(r.plazo), v => { r.plazo = parseInt(v, 10); }));
         const ok = mk('input');
         ok.type = 'checkbox';
         ok.checked = r.ok;
         ok.addEventListener('change', () => { r.ok = ok.checked; check(); });
         const src = td(mk('span', null, SRC[r.fuente] || r.fuente));
-        if (r.fuente === 'pdf') { const l = mk('label', 'avcx-rok'); l.append(ok, document.createTextNode(' Revisado')); src.append(l); }
+        if (r.fuente === 'pdf' || r.fuente === 'xmlrev') { const l = mk('label', 'avcx-rok'); l.append(ok, document.createTextNode(' Revisado')); src.append(l); }
         t.append(tr);
       });
       body.append(sec(`Remesas (${st.rems.length})`, t));
@@ -4802,7 +4805,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     newBtn.type = 'button';
     newBtn.id = 'avcx-new';
     newBtn.textContent = 'Nuevo AVC desde archivos';
-    newBtn.title = 'Elige (o arrastra a la página) los PDF/XML: pedimentos, remesas, cartas porte, facturas y reporte de COVE. Se leen en este equipo; nada se envía hasta que confirmes.';
+    newBtn.title = 'Elige (o arrastra a la página) los PDF/XML: pedimentos, remesas, cartas porte y facturas (XML de preferencia). Se leen en este equipo; nada se envía hasta que confirmes.';
     const pick = mk('input');
     pick.type = 'file';
     pick.multiple = true;
