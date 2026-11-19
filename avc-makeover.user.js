@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.153
+// @version      0.154
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -1006,6 +1006,17 @@
     p.catch(() => wsMem.delete(folio));
     wsMem.set(folio, p);
     return p;
+  }
+  // 0.154: para la hora de llegada. Si lo guardado (memoria o sessionStorage) no trae momento_cruce, casi siempre se consultó cuando el AVC aún no se presentaba:
+  // se vuelve a pedir UNA vez por folio y carga (antes la fila quedaba sin hora al final de Cumplido hasta que vencía la caché de CACHE_MIN).
+  const wsTsRetry = new Set();
+  async function loadWSTs(folio) {
+    const d = await loadWS(folio);
+    if ((d && d.ts) || wsTsRetry.has(folio)) return d;
+    wsTsRetry.add(folio);
+    wsMem.delete(folio);
+    try { sessionStorage.removeItem(WSKEY + folio); } catch (_) { /* ignore */ }
+    return loadWS(folio);
   }
 
   // Si hay token o credenciales configuradas, el servicio web manda sobre el pedimento/RFC leídos del HTML:
@@ -2128,7 +2139,7 @@
     const f = rowFolio(row);
     if (!f || !hasWS()) return;
     row.dataset.avcxOrdReq = '1'; // una sola vez por fila: si falla, la reintenta fill() cuando la fila se ve (y entonces la hora queda guardada también)
-    loadWS(f).then(d => { if (d && d.ts) { ordSet(f, d.ts, 'w', cls); scheduleSortTs(); } }).catch(() => { /* ya hay reintento por fila visible */ });
+    loadWSTs(f).then(d => { if (d && d.ts) { ordSet(f, d.ts, 'w', cls); scheduleSortTs(); } }).catch(() => { /* ya hay reintento por fila visible */ });
   }
   const folioSeq = r => (rowFolio(r) || '').slice(-11); // consecutivo del folio: crece con la emisión
   // Fecha y hora de llegada bajo el estatus (0.112), en Reconocimiento y Cumplido: la misma hora del orden por llegada (ordRec). "≈" = aproximada:
@@ -2874,7 +2885,7 @@
     const o = ordRec[f];
     if (o && o[2] === cls) return;
     let ms = 0;
-    if (hasWS()) { try { const d = await loadWS(f); ms = d && d.ts; } catch (_) { /* sin hora del servicio */ } }
+    if (hasWS()) { try { const d = await loadWSTs(f); ms = d && d.ts; } catch (_) { /* sin hora del servicio */ } }
     ordSet(f, ms || prevT || now, ms ? 'w' : 'o', cls);
   }
   async function watchPend(spec) {
@@ -2912,7 +2923,12 @@
     let budget = WATCH_MAX_FETCH;
     for (const f of left) {
       const m = mine.get(f);
-      if (m && !m.dataset.avcxExtra) continue; // está en esta hoja: el sondeo normal ya la actualiza
+      if (m && !m.dataset.avcxExtra) { // está en esta hoja: el sondeo normal ya la actualiza
+        // 0.154: salvo que ya cargó con el estatus nuevo (recarga o pestaña restaurada por el celular): el sondeo no ve el cambio y quedaba sin hora
+        const st = m.dataset.avcxStatus;
+        if (ORDER_GROUPS.includes(st) && !ordKey(m, st)) { await stamp(f, st, fresh, prev.t, now); scheduleSortTs(); }
+        continue;
+      }
       if (budget <= 0) { keep[f] = prev.f[f]; continue; }
       budget--;
       let res = null;
