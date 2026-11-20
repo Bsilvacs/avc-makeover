@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.158
+// @version      0.160
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -125,6 +125,7 @@
   const WATCH_KEEP_HOURS = 24;        // Cumplido: AVC de otras hojas que se muestran en la hoja 1 si llegaron en estas últimas horas
   const WATCH_MAX_PAGES = 5;          // hojas como máximo por cada estatus vigilado (20 AVC por hoja)
   const WATCH_WARN_DAYS = 9;          // No presentado: solo se vigilan los emitidos en estos últimos días (la fecha va en el folio). El AVC dura 7 días: el emitido el día 13 vence el 21 (fecha_vigencia del servicio); 9 días cubren hasta el final de ese día. Uno vencido sin presentar ya no cambia. Reconocimiento: todos, sin límite
+  const RECON_APROX_MIN = 15;        // 0.160: si el portal estuvo cerrado hasta estos minutos, la salida de reconocimiento se estima ('≈'); más tiempo = '≥' (cuando menos)
   const RECON_LONG_H = 2;             // 0.113: en Reconocimiento, a partir de estas horas la fila se marca más fuerte (el tiempo se muestra bajo el estatus)
   const DAY_SUM_ON = true;            // 0.113: resumen del día en la barra Filtros (despachados hoy, en reconocimiento, por presentar); sale de las tablas, sin peticiones
   const COPY_SUM_ON = true;           // 0.113: botón por fila que copia "Pedimento · RFC · Estatus · hora" (sin razón social) al portapapeles
@@ -1984,7 +1985,7 @@
     }
     return { ped, rfc, rs };
   }
-  async function notifyAvc(f, cls, st) {
+  async function notifyAvc(f, cls, st, extra) {
     if (!notifyOn || !f || !ORDER_GROUPS.includes(cls)) return;
     let info = { ped: '', rfc: '', rs: '' };
     try { info = await notifyInfo(f); } catch (_) { /* sale sin esos datos */ }
@@ -1994,6 +1995,7 @@
     if (info.rfc) lines.push('RFC ' + info.rfc);
     if (info.rs) lines.push(info.rs);
     if (!lines.length) lines.push(f);
+    if (extra) lines.push(extra);
     try {
       const n = new Notification('AVC · ' + estatus.slice(0, 80), {
         body: lines.join('\n').slice(0, 300),
@@ -2116,11 +2118,16 @@
   const ordPrev = new Map(); // folio -> tabla en que estaba la fila que el sondeo reemplaza (para no anotar como llegada un cambio de otro dato)
   const ordDirty = new Set();
   let sortRaf = 0;
-  function ordSet(folio, ms, src, cls) {
+  // 0.159: al pasar de Reconocimiento a Cumplido se conserva la hora de entrada a reconocimiento (4o dato) para mostrar cuánto duró. 5o dato (0.160) = precisión de la
+  // hora de salida: 0 vista por el script (±1 min), 1 '≈' (punto medio de una ventana de hasta RECON_APROX_MIN), 2 '≥' (última revisión en que seguía en reconocimiento:
+  // salió después; la duración es "cuando menos"). En Reconocimiento, 4o dato = 1 si ya se avisó de RECON_LONG_H horas.
+  function ordSet(folio, ms, src, cls, ax) {
     if (!folio || !ms || !ORDER_ON) return;
     const o = ordRec[folio];
     if (o && o[2] === cls && o[1] === 'o' && src === 'w') return; // lo visto llegar manda sobre lo del servicio web
-    ordRec[folio] = [ms, src, cls];
+    if (cls === 'bad') { ordRec[folio] = o && o[2] === 'bad' && o[3] ? [ms, src, cls, 1] : [ms, src, cls]; ordDirty.add(folio); return; }
+    const rs = cls === 'ok' && o ? (o[2] === 'bad' ? o[0] : (o[2] === 'ok' ? o[3] || 0 : 0)) : 0;
+    ordRec[folio] = rs ? [ms, src, cls, rs, ax || 0] : [ms, src, cls];
     ordDirty.add(folio);
   }
   function ordSave() {
@@ -2168,6 +2175,20 @@
       if (th) th += dur;
       long = RECON_LONG_H > 0 && min >= RECON_LONG_H * 60;
     }
+    // 0.159: en Cumplido, cuánto duró el reconocimiento (entrada exacta; salida vista por el script o aproximada con '≈'). Siempre en rojo y en negritas desde RECON_LONG_H.
+    // Va en un <span class="avcx-recdur"> vacío (texto por CSS attr: no entra en Copiar resumen) que muestra la hora y la duración; la hora del ::after se apaga en esa fila.
+    let rd = null;
+    if (t && cls === 'ok' && o[1] === 'o' && o[3] && o[0] > o[3]) {
+      const min = Math.floor((o[0] - o[3]) / 60000), ax = o[4] === 2 ? '≥ ' : o[4] ? '≈ ' : '';
+      rd = { t: ax + th, d: 'rec. ' + ax + (min < 60 ? min + ' min' : Math.floor(min / 60) + ' h ' + (min % 60) + ' min'), l: RECON_LONG_H > 0 && min >= RECON_LONG_H * 60 };
+      th = '';
+    }
+    let sp = c.querySelector(':scope>.avcx-recdur');
+    if (rd && !sp) { sp = document.createElement('span'); sp.className = 'avcx-recdur'; c.appendChild(sp); }
+    if (sp) {
+      if (rd) { if (sp.dataset.t !== rd.t) sp.dataset.t = rd.t; if (sp.dataset.d !== rd.d) sp.dataset.d = rd.d; if (rd.l !== !!sp.dataset.l) { if (rd.l) sp.dataset.l = '1'; else delete sp.dataset.l; } }
+      else if (sp.dataset.t) { delete sp.dataset.t; delete sp.dataset.d; delete sp.dataset.l; }
+    }
     if ((c.dataset.avcxTs || '') !== t) { if (t) c.dataset.avcxTs = t; else delete c.dataset.avcxTs; }
     if ((c.dataset.avcxTsh || '') !== th) { if (th) c.dataset.avcxTsh = th; else delete c.dataset.avcxTsh; }
     if (long !== !!r.dataset.avcxLong) { if (long) r.dataset.avcxLong = '1'; else delete r.dataset.avcxLong; }
@@ -2176,6 +2197,28 @@
   function refreshTsLabels() {
     splitGroups.forEach(g => { if (g.cls === 'bad') [...g.tbody.rows].forEach(r => setTsLabel(r, 'bad')); });
     updateDaySum();
+    notifyLong();
+  }
+  // 0.160: aviso de escritorio, una sola vez por AVC, al cumplir RECON_LONG_H horas en Reconocimiento. Sale de lo que la vigilancia vio en reconocimiento en su última
+  // revisión ('pend', de menos de 5 min) y de la hora de entrada (ordRec), en cualquier hoja. La marca de avisado se relee del gestor antes de avisar (varias pestañas).
+  function notifyLong() {
+    if (!notifyOn || !(RECON_LONG_H > 0)) return;
+    let p = null;
+    try { p = JSON.parse(store.get('pend', '{}')); } catch (_) { return; }
+    if (!p || !p.f || !(Date.now() - p.t < 5 * 60000)) return;
+    const lim = Date.now() - RECON_LONG_H * 3600e3;
+    const due = Object.keys(p.f).filter(f => p.f[f] === 'bad' && ordRec[f] && ordRec[f][2] === 'bad' && !ordRec[f][3] && ordRec[f][0] <= lim);
+    if (!due.length) return;
+    let cur = {};
+    try { cur = JSON.parse(store.get('ordrec', '{}')) || {}; } catch (_) { cur = {}; }
+    due.forEach(f => {
+      const c = cur[f];
+      if (c && c[2] === 'bad' && c[3]) { ordRec[f] = c; return; } // otra pestaña ya avisó
+      ordRec[f][3] = 1; ordDirty.add(f);
+      const d = tzParts(folioTz(f), ordRec[f][0]), sg = ADUANA_SIGLAS[f.slice(3, 5)];
+      notifyAvc(f, 'bad', 'Reconocimiento ' + RECON_LONG_H + ' h', 'En reconocimiento desde ' + pad2(d.hour % 24) + ':' + pad2(d.minute) + (sg ? ' (' + sg + ')' : ''));
+    });
+    ordSave();
   }
   // Resumen del día (0.119): no depende de la hoja abierta y respeta tus filtros. En reconocimiento y por presentar = conteo guardado por la vigilancia ('daycnt': se pide
   // con tus mismos filtros, cada minuto y desde cualquier hoja; solo se usa si corresponde a los filtros actuales). Despachados hoy = horas de llegada guardadas (ordRec);
@@ -2884,6 +2927,13 @@
   async function stamp(f, cls, fresh, prevT, now) {
     if (fresh) { ordSet(f, now, 'o', cls); return; }
     const o = ordRec[f];
+    // 0.160: salió de Reconocimiento con el portal cerrado. Se sabe que en la revisión prevT seguía ahí: ventana corta = punto medio '≈'; larga = '≥ prevT'.
+    // También corrige un Cumplido que ya tomó la hora del servicio web (= entrada a reconocimiento, no la salida).
+    if (cls === 'ok' && prevT && o && prevT > (o[2] === 'bad' ? o[0] : o[3] || Infinity) && (o[2] === 'bad' || (o[2] === 'ok' && o[3] && o[1] === 'w'))) {
+      const short = now - prevT <= RECON_APROX_MIN * 60000;
+      ordSet(f, short ? Math.round((prevT + now) / 2) : prevT, 'o', cls, short ? 1 : 2);
+      return;
+    }
     if (o && o[2] === cls) return;
     let ms = 0;
     if (hasWS()) { try { const d = await loadWSTs(f); ms = d && d.ts; } catch (_) { /* sin hora del servicio */ } }
@@ -2927,7 +2977,8 @@
       if (m && !m.dataset.avcxExtra) { // está en esta hoja: el sondeo normal ya la actualiza
         // 0.154: salvo que ya cargó con el estatus nuevo (recarga o pestaña restaurada por el celular): el sondeo no ve el cambio y quedaba sin hora
         const st = m.dataset.avcxStatus;
-        if (ORDER_GROUPS.includes(st) && !ordKey(m, st)) { await stamp(f, st, fresh, prev.t, now); scheduleSortTs(); }
+        const om = ordRec[f]; // 0.160: o un Cumplido con la hora del servicio web (entrada a reconocimiento): se cambia por la mejor estimación de la salida
+        if (ORDER_GROUPS.includes(st) && (!ordKey(m, st) || (st === 'ok' && prev.f[f] === 'bad' && om && om[1] === 'w' && om[3]))) { await stamp(f, st, fresh, prev.t, now); scheduleSortTs(); }
         continue;
       }
       if (budget <= 0) { keep[f] = prev.f[f]; continue; }
@@ -3128,6 +3179,11 @@
     .avcx-table tr[data-avcx-status="warn"] .avcx-cpy{display:none!important} /* 0.130: sin "Copiar resultado" en No presentados (vuelve solo si cambia el estatus) */
     .avcx-table tr[data-avcx-long]>td,.avcx-table tr[data-avcx-long]:hover>td{background-color:#ef9a9a!important}
     .avcx-table tr[data-avcx-long] .avcx-stcell[data-avcx-ts]::after{color:#b71c1c!important;font-weight:700}
+    .avcx-recdur:not([data-t]){display:none!important}
+    .avcx-table .avcx-recdur{display:block;font-size:11px;line-height:1.1;margin-top:1px;color:#555;text-align:center;font-weight:400}
+    .avcx-recdur::before{content:attr(data-t) " · "}
+    .avcx-recdur::after{content:attr(data-d);color:#c62828}
+    .avcx-recdur[data-l]::after{font-weight:700;color:#b71c1c}
     .avcx-table tr[data-avcx-status="ok"] .avcx-stcell[data-avcx-ts]::after,.avcx-table tr[data-avcx-status="bad"] .avcx-stcell[data-avcx-ts]::after{content:attr(data-avcx-tsh);display:block;font-size:11px;line-height:1.1;margin-top:1px;color:#555;text-align:center}
     .avcx-splitbar{display:block;width:100%;box-sizing:border-box;text-align:left;cursor:pointer;margin:14px 0 6px;padding:6px 12px;border:0;border-radius:4px;border-left:6px solid #999;background:#f3f3f3;color:#222;font:600 14px system-ui,sans-serif}
     .avcx-splitbar:hover{filter:brightness(.96)}
@@ -3206,6 +3262,8 @@
     html.avcx-touch .avcx-table tbody td.avcx-stcell i{font-size:14px!important}
     html.avcx-touch .avcx-table tbody td.avcx-stcell[data-avcx-sh]{font-size:0!important}
     html.avcx-touch .avcx-table tbody td.avcx-stcell[data-avcx-sh]::before{content:attr(data-avcx-sh);order:2;font-size:14px}
+    html.avcx-touch .avcx-table tbody td.avcx-stcell>.avcx-recdur{order:3;display:inline;white-space:nowrap;margin:0;font-size:13px;text-align:right}
+    html.avcx-touch .avcx-recdur::before{content:"· " attr(data-t) " · "}
     html.avcx-touch .avcx-table tbody tr[data-avcx-status] td.avcx-stcell[data-avcx-tsh]::after{content:"· " attr(data-avcx-tsh);order:3;display:inline;white-space:nowrap;margin:0}
     html.avcx-touch .avcx-table tbody td[data-avcx-col="rs"]{order:4;flex:1 1 100%;min-width:0;max-width:none!important;white-space:normal!important;font-size:15px;font-weight:500;color:#111!important;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
     html.avcx-touch .avcx-table tbody td[data-avcx-col="rfc"]{order:5;white-space:normal!important}
@@ -5349,7 +5407,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   /* ================= ARRANQUE ================= */
   let t0;
   new MutationObserver(ms => {
-    if (ms.every(m => (m.addedNodes.length === 1 && !m.removedNodes.length && m.addedNodes[0].classList && m.addedNodes[0].classList.contains('avcx-modic')) || tip.contains(m.target) || toastEl.contains(m.target) || bannerEl.contains(m.target) || (panel && panel.contains(m.target)) ||
+    if (ms.every(m => (m.addedNodes.length === 1 && !m.removedNodes.length && m.addedNodes[0].classList && (m.addedNodes[0].classList.contains('avcx-modic') || m.addedNodes[0].classList.contains('avcx-recdur'))) || tip.contains(m.target) || toastEl.contains(m.target) || bannerEl.contains(m.target) || (panel && panel.contains(m.target)) ||
         (m.target.closest && m.target.closest('#avcx-deltoggle, #avcx-exptoggle, #avcx-splittoggle, #avcx-notiftoggle, #avcx-debugtoggle, .avcx-filtbar, #avcx-nav, #avcx-split, .avcx-splitbar, #avcx-print, #avcx-ravc, #avcx-drop')))) return;
     perf.mo++;
     clearTimeout(t0);
