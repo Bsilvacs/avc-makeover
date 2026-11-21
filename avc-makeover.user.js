@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.183
+// @version      0.185
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -585,6 +585,70 @@
     /* 0.183: mensaje de actualización (toast) en tinta con la fuente del tema; mismo lugar que en Clásico */
     html.avcx-th-pp #avcx-toast{background:#1F3B33!important;color:#F5F8F5!important;border-radius:0!important;border-left:3px solid #A9BAAF;font:500 13px ${PP_FONT}!important;font-variant-numeric:tabular-nums}
     html.avcx-th-pp.avcx-touch #avcx-toast{font-size:14px!important;padding:9px 12px}
+    /* 0.184: banners, menú del logo y diálogos (Catálogos, Servicio web, Nuevo AVC, AVC generado, soltar archivos) con el tema; banners conservan rojo/ámbar */
+    html.avcx-th-pp #avcx-banner{font-family:${PP_FONT}!important;font-weight:500;box-shadow:none!important;border-bottom:2px solid #8e1c1c}
+    html.avcx-th-pp #avcx-banner.avcx-warn{color:#1F3B33!important;border-bottom-color:#b07d00}
+    html.avcx-th-pp #avcx-banner button{border-radius:0!important;font-family:${PP_FONT}!important;font-weight:500}
+    html.avcx-th-pp #avcx-banner.avcx-warn button{color:#1F3B33!important;border-color:#1F3B33!important}
+    html.avcx-th-pp #avcx-nav{font-family:${PP_FONT}!important}
+    html.avcx-th-pp #avcx-nav .avcx-nav-menu{background:#F5F8F5!important;border:1px solid #BFCCC3;border-radius:0!important;box-shadow:0 6px 18px rgba(31,59,51,.18)!important}
+    html.avcx-th-pp #avcx-nav .avcx-nav-item{color:#1F3B33!important}
+    html.avcx-th-pp #avcx-nav .avcx-nav-item:hover{background:#EEF3EF!important}
+    html.avcx-th-pp #avcx-nav .avcx-nav-item.on{font-weight:600}
+    html.avcx-th-pp #avcx-nav .avcx-nav-tools{border-top:1.5px dashed #A9BAAF!important}
+    html.avcx-th-pp #avcx-nav .avcx-nav-tools>*{background:#F5F8F5!important;color:#1F3B33!important;border:1px solid #BFCCC3!important;border-radius:0!important;box-shadow:none!important;font-family:${PP_FONT}!important}
+    html.avcx-th-pp #avcx-nav .avcx-nav-tools>*:hover{background:#EEF3EF!important}
+    html.avcx-th-pp :is(#avcx-panel,#avcx-ravc){background:rgba(31,59,51,.45)!important;font-family:${PP_FONT}!important;font-variant-numeric:tabular-nums}
+    html.avcx-th-pp :is(#avcx-panel .avcx-pbox,#avcx-ravc .avcx-rbox){background:#F5F8F5!important;color:#1F3B33!important;border:1px solid #BFCCC3;border-radius:0!important;box-shadow:0 10px 30px rgba(31,59,51,.25)!important}
+    html.avcx-th-pp :is(#avcx-panel,#avcx-ravc) :is(input,select,button,.avcx-prfc,.avcx-rmono,.avcx-rfolio){font-family:${PP_FONT}!important}
+    html.avcx-th-pp :is(#avcx-panel,#avcx-ravc) :is(input,select){border:1px solid #BFCCC3!important;border-radius:0!important;color:#1F3B33!important;background:#fff!important}
+    html.avcx-th-pp :is(#avcx-panel,#avcx-ravc) :is(input,select):focus{outline:1.5px solid #1F3B33;outline-offset:-1px}
+    html.avcx-th-pp :is(#avcx-panel,#avcx-ravc) .avcx-pbtn{background:#F5F8F5!important;color:#1F3B33!important;border:1px solid #BFCCC3!important;border-radius:0!important;font-weight:500}
+    html.avcx-th-pp :is(#avcx-panel,#avcx-ravc) .avcx-pbtn:hover{background:#EEF3EF!important}
+    html.avcx-th-pp #avcx-ravc .avcx-rsend{background:#1F3B33!important;color:#F5F8F5!important;border-color:#1F3B33!important}
+    html.avcx-th-pp #avcx-ravc .avcx-rsend:hover{background:#2B4F45!important}
+    html.avcx-th-pp #avcx-panel .avcx-ptabs{border-bottom:1px solid #BFCCC3!important}
+    html.avcx-th-pp #avcx-panel .avcx-ptab{background:#F5F8F5!important;color:#1F3B33!important;border:1px solid #BFCCC3!important;border-bottom:0!important;border-radius:0!important;font-family:${PP_FONT}!important}
+    html.avcx-th-pp #avcx-panel .avcx-ptab.on{background:#1F3B33!important;color:#F5F8F5!important;border-color:#1F3B33!important;font-weight:600}
+    html.avcx-th-pp #avcx-panel .avcx-plist{border:1px solid #CBD6CE!important;border-radius:0!important}
+    html.avcx-th-pp #avcx-panel .avcx-prow{border-bottom:1px dotted #A9BAAF!important}
+    html.avcx-th-pp :is(#avcx-panel .avcx-phint,#avcx-panel .avcx-pempty,#avcx-ravc .avcx-rfld>span,#avcx-ravc .avcx-rfld small,#avcx-ravc .avcx-rnote){color:#5E7268!important}
+    html.avcx-th-pp #avcx-ravc .avcx-rsec{border:1px solid #CBD6CE!important;border-radius:0!important}
+    html.avcx-th-pp #avcx-ravc .avcx-rfoot{border-top:1.5px dashed #A9BAAF!important}
+    html.avcx-th-pp #avcx-ravc .avcx-rtab :is(th,td){border-color:#CBD6CE!important}
+    html.avcx-th-pp #avcx-ravc .avcx-rtab th{background:#EEF3EF!important}
+    html.avcx-th-pp #avcx-ravc :is(.avcx-rerr,.avcx-rwarn){border-radius:0!important}
+    html.avcx-th-pp #avcx-ravc .avcx-rjson{background:#EEF3EF!important;border-color:#CBD6CE!important;border-radius:0!important}
+    html.avcx-th-pp #avcx-ravc .avcx-rfolio{color:#1F3B33!important}
+    html.avcx-th-pp #avcx-drop{background:rgba(31,59,51,.55)!important}
+    html.avcx-th-pp #avcx-drop div{background:#F5F8F5!important;color:#1F3B33!important;border:3px dashed #1F3B33!important;border-radius:0!important;font-family:${PP_FONT}!important}
+    /* 0.185: Filtros abierto (campos y botones del portal), casillas, panel de Temas y franja de prueba con el tema */
+    html.avcx-th-pp{accent-color:#1F3B33}
+    html.avcx-th-pp #content-wrapper .card{background:#F5F8F5!important;border:1px solid #BFCCC3!important;border-radius:0!important;box-shadow:none!important;font-family:${PP_FONT}!important;color:#1F3B33}
+    html.avcx-th-pp #content-wrapper .card>:is(.card-header,.card-body,.card-footer){background:transparent!important;border-color:#BFCCC3!important;border-radius:0!important}
+    html.avcx-th-pp #content-wrapper .card>.card-header :is(h1,h2,h3,h4,h5,h6,.m-0,.font-weight-bold){font-family:${PP_FONT}!important;color:#1F3B33!important}
+    html.avcx-th-pp #content-wrapper ::placeholder{color:#8A958F!important;opacity:1}
+    html.avcx-th-pp #content-wrapper :is(.form-control,.custom-select,.form-select,select,input[type="text"],input[type="date"],input[type="search"]){font-family:${PP_FONT}!important;color:#1F3B33!important;background-color:#fff!important;border:1px solid #BFCCC3!important;border-radius:0!important;box-shadow:none!important}
+    html.avcx-th-pp #content-wrapper :is(.form-control,.custom-select,.form-select,select,input):focus{outline:1.5px solid #1F3B33!important;outline-offset:-1px;box-shadow:none!important}
+    html.avcx-th-pp #content-wrapper form label,html.avcx-th-pp #content-wrapper .form-group>label{font-family:${PP_FONT}!important;color:#5E7268!important}
+    html.avcx-th-pp #content-wrapper .btn{font-family:${PP_FONT}!important;font-weight:500;border-radius:0!important;box-shadow:none!important}
+    html.avcx-th-pp #content-wrapper :is(.btn-primary,.btn-success,.btn-info){background:#1F3B33!important;border-color:#1F3B33!important;color:#F5F8F5!important}
+    html.avcx-th-pp #content-wrapper :is(.btn-primary,.btn-success,.btn-info):hover{background:#2B4F45!important}
+    html.avcx-th-pp #content-wrapper :is(.btn-secondary,.btn-light,.btn-default,[class*="btn-outline-"]){background:#F5F8F5!important;border:1px solid #BFCCC3!important;color:#1F3B33!important}
+    html.avcx-th-pp #content-wrapper :is(.btn-secondary,.btn-light,.btn-default,[class*="btn-outline-"]):hover{background:#EEF3EF!important}
+    html.avcx-th-pp :is(#avcx-deltoggle,#avcx-exptoggle,#avcx-splittoggle,#avcx-notiftoggle,#avcx-debugtoggle){font-family:${PP_FONT}!important;color:#1F3B33!important}
+    html.avcx-th-pp :is(#avcx-deltoggle,#avcx-exptoggle,#avcx-splittoggle,#avcx-notiftoggle,#avcx-debugtoggle) input{accent-color:#1F3B33}
+    html.avcx-th-pp #avcx-thp{background:#F5F8F5!important;color:#1F3B33!important;border:1px solid #BFCCC3!important;border-radius:0!important;font-family:${PP_FONT}!important;box-shadow:0 10px 30px rgba(31,59,51,.25)!important}
+    html.avcx-th-pp #avcx-thp .avcx-thp-x{color:#5E7268!important}
+    html.avcx-th-pp #avcx-thp .avcx-thp-opt{border:1.5px solid #BFCCC3!important;border-radius:0!important;background:#F5F8F5!important;color:#1F3B33!important}
+    html.avcx-th-pp #avcx-thp .avcx-thp-opt[aria-pressed="true"]{border-color:#1F3B33!important;background:#EEF3EF!important}
+    html.avcx-th-pp #avcx-thp :is(.avcx-thp-name small,.avcx-thp-note){color:#5E7268!important}
+    html.avcx-th-pp #avcx-thp .avcx-thp-sw{border-radius:0!important}
+    html.avcx-th-pp #avcx-thp .avcx-thp-acts button{border:1px solid #BFCCC3!important;border-radius:0!important;background:#F5F8F5!important;color:#1F3B33!important;font-weight:500}
+    html.avcx-th-pp #avcx-thp .avcx-thp-acts .avcx-thp-ap{background:#1F3B33!important;border-color:#1F3B33!important;color:#F5F8F5!important}
+    html.avcx-th-pp #avcx-thbar{font-family:${PP_FONT}!important}
+    html.avcx-th-pp #avcx-thbar button{font-family:${PP_FONT}!important;font-weight:500!important;border-radius:0!important}
+    html.avcx-th-pp #avcx-thbar .avcx-thbar-q{background:#1F3B33!important;border-color:#1F3B33!important}
     /* celular: tarjetas de papel sin doble marco; abierta con borde de tinta; letra estrecha en razón social y tercer renglón */
     html.avcx-th-pp.avcx-touch .avcx-splitbar{font-size:14px;padding:5px 12px 4px 8px;margin-top:12px}
     html.avcx-th-pp.avcx-touch .avcx-splitbar+.avcx-split-scroll{border-left:0;border-right:0;border-bottom:0;background:transparent}
@@ -3758,16 +3822,20 @@
     html.avcx-touch .avcx-topbar{height:${TOUCH_BAR_PX}px!important;min-height:0!important;padding-top:0!important;padding-bottom:0!important;overflow:hidden}
     html.avcx-touch .avcx-topbar img{max-height:32px!important;width:auto!important}
     html.avcx-touch .avcx-topbar,html.avcx-touch .avcx-topbar a,html.avcx-touch .avcx-topbar span{font-size:14px!important}
-    html.avcx-touch .avcx-splitbar.avcx-sb-empty{font-size:11px;font-weight:400;line-height:16px;padding:0 12px;margin:4px 0} /* 0.147: sección vacía = franja delgada */
+    .avcx-splitbar.avcx-sb-empty{pointer-events:none;cursor:default} .avcx-splitbar.avcx-sb-empty .avcx-sba{display:none} /* 0.185: sección vacía sin flecha ni clic en todos los temas; franja delgada también en escritorio */
+    .avcx-splitbar.avcx-sb-empty{font-size:11px;font-weight:400;line-height:16px;padding:0 12px;margin:4px 0} /* 0.147: sección vacía = franja delgada */
     html.avcx-touch .avcx-filtbar[aria-expanded="false"]{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     html.avcx-touch .avcx-filtbar .avcx-n-ok{color:#2e7d32}
     html.avcx-touch .avcx-filtbar .avcx-n-bad{color:#c62828}
     html.avcx-touch .avcx-filtbar .avcx-n-warn{color:#b07d00}
-    html.avcx-touch .avcx-totop{width:34px!important;height:34px!important;min-width:0!important;min-height:0!important;padding:0!important;border:0!important;border-radius:50%!important;background:rgba(60,60,60,.25)!important;bottom:56px!important;color:#fff!important;display:flex!important;align-items:center;justify-content:center;font-size:16px!important;box-shadow:none!important;opacity:1}
+    html.avcx-touch .avcx-totop{width:34px!important;height:34px!important;min-width:0!important;min-height:0!important;padding:0!important;border:0!important;border-radius:50%!important;background:rgba(60,60,60,.35)!important;bottom:56px!important;color:#fff!important;display:flex!important;align-items:center;justify-content:center;font-size:16px!important;box-shadow:none!important;opacity:1}
     html.avcx-touch .avcx-totop i{color:rgba(255,255,255,.85)!important;font-size:16px!important} /* 0.153: más transparente y más arriba (no tapa la flecha de la última tarjeta) */
     /* 0.163: botón subir angosto (24 px) en el margen derecho, fuera de las tarjetas; área de toque más grande con ::before transparente */
     html.avcx-touch .avcx-totop{width:24px!important;height:24px!important;right:1px!important;bottom:12px!important;font-size:13px!important}
     html.avcx-touch .avcx-totop i{font-size:13px!important}
+    /* 0.185 (Clásico, cohesión): ceros del resumen en gris sin negritas y botón subir redondo gris también en escritorio */
+    .avcx-filtbar :is(span[class^="avcx-n-"],b.avcx-z){color:#888!important;font-weight:400!important}
+    html:not(.avcx-touch) .scroll-to-top{width:40px!important;height:40px!important;border-radius:50%!important;background:rgba(60,60,60,.35)!important;box-shadow:none!important}
     html.avcx-touch .avcx-totop::before{content:"";position:absolute;inset:-10px}
     html.avcx-touch #avcx-deltoggle,html.avcx-touch #avcx-exptoggle,html.avcx-touch #avcx-splittoggle,html.avcx-touch #avcx-notiftoggle,html.avcx-touch #avcx-debugtoggle{padding:6px 0;font-size:15px}
     html.avcx-touch #avcx-deltoggle input,html.avcx-touch #avcx-exptoggle input,html.avcx-touch #avcx-splittoggle input,html.avcx-touch #avcx-notiftoggle input,html.avcx-touch #avcx-debugtoggle input{width:20px;height:20px}
