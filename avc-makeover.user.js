@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.177
+// @version      0.178
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -524,7 +524,9 @@
     /* 0.176 (escritorio y celular): sección vacía = renglón de índice "▾ Título ······ 0" sin caja; con 1 o más vuelve a ser pestaña de color */
     html.avcx-th-pp .avcx-splitbar.avcx-sb-empty{display:flex!important;align-items:baseline;gap:6px;width:100%;max-width:none;box-sizing:border-box;background:transparent!important;border:0!important;
       border-radius:0;padding:0 2px!important;margin:12px 0 4px!important;color:#5E7268!important;font-weight:400!important;font-stretch:100%;font-size:13px!important;line-height:16px!important}
-    html.avcx-th-pp .avcx-splitbar.avcx-sb-empty:hover{filter:none;color:#1F3B33!important}
+    /* 0.178: con 0 no hay nada que abrir: sin flecha y sin reaccionar al clic o toque */
+    html.avcx-th-pp .avcx-splitbar.avcx-sb-empty{pointer-events:none;cursor:default}
+    html.avcx-th-pp .avcx-splitbar.avcx-sb-empty .avcx-sba{display:none}
     html.avcx-th-pp .avcx-splitbar.avcx-sb-empty .avcx-sbn{flex:1;display:flex;align-items:baseline;gap:6px;font-size:0}
     html.avcx-th-pp .avcx-splitbar.avcx-sb-empty .avcx-sbn::before{content:"";flex:1;border-bottom:1.5px dotted #A9BAAF;transform:translateY(-3px)}
     html.avcx-th-pp .avcx-splitbar.avcx-sb-empty .avcx-sbn::after{content:"0";font-size:13px;font-weight:600}
@@ -2678,10 +2680,11 @@
       g.n = rows.filter(visible).length;
       const txt = `${splitArrow(g.cls)} ${g.title} (${g.n})`;
       if (g.bar.textContent !== txt || !g.bar.firstElementChild) { // 0.177: también si la barra aún trae solo el texto con que se creó (con 0 era igual y no se armaban los spans); 0.176: dos spans (etiqueta y conteo) para el renglón de índice de Pasaporte; el texto completo no cambia
-        const sl = document.createElement('span'), sn = document.createElement('span');
-        sl.className = 'avcx-sbl'; sl.textContent = `${splitArrow(g.cls)} ${g.title}`;
+        const sa = document.createElement('span'), sl = document.createElement('span'), sn = document.createElement('span');
+        sa.className = 'avcx-sba'; sa.textContent = `${splitArrow(g.cls)} `; // 0.178: flecha aparte (Pasaporte la oculta con 0)
+        sl.className = 'avcx-sbl'; sl.textContent = g.title;
         sn.className = 'avcx-sbn'; sn.textContent = ` (${g.n})`;
-        g.bar.replaceChildren(sl, sn);
+        g.bar.replaceChildren(sa, sl, sn);
       }
       g.bar.classList.toggle('avcx-sb-empty', !g.n); // 0.147: franja delgada en celular (CSS)
       g.bar.setAttribute('aria-expanded', String(!splitCollapsed[g.cls]));
