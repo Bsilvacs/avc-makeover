@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.179
+// @version      0.181
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -571,16 +571,17 @@
     /* 0.179: también en celular (cohesión): quita el recuadro claro redondeado detrás de las tarjetas */
     html.avcx-th-pp #content-wrapper :is(.card,.card-body,.shadow,.table-responsive,.container-fluid,.row,[class*="col-"]):has(#avcx-split,.avcx-filtbar),
     html.avcx-th-pp .card:has(#avcx-split,.avcx-filtbar)>:is(.card-header,.card-footer){background:transparent!important;background-image:none!important;border-color:transparent!important;box-shadow:none!important}
-    html.avcx-th-pp:not(.avcx-touch) nav.navbar,html.avcx-th-pp:not(.avcx-touch) .avcx-topbar{background:#1F3B33!important;background-image:none!important}
-    html.avcx-th-pp:not(.avcx-touch) footer,html.avcx-th-pp:not(.avcx-touch) .sticky-footer{background:transparent!important;background-image:none!important;box-shadow:none!important;border-top:1.5px dashed #A9BAAF!important;margin:0 12px!important;font-family:${PP_FONT}!important}
-    html.avcx-th-pp:not(.avcx-touch) :is(footer,.sticky-footer) *{background:transparent!important;color:#5E7268!important}
-    html.avcx-th-pp:not(.avcx-touch) .pagination .page-link{background:#F5F8F5!important;color:#1F3B33!important;border-color:#BFCCC3!important;border-radius:0!important;box-shadow:none!important;font-family:${PP_FONT}!important;font-variant-numeric:tabular-nums}
-    html.avcx-th-pp:not(.avcx-touch) .pagination .page-link:hover{background:#EEF3EF!important}
-    html.avcx-th-pp:not(.avcx-touch) .pagination .page-item.disabled .page-link{color:#A9BAAF!important}
-    html.avcx-th-pp:not(.avcx-touch) .pagination .page-item.active .page-link{background:#1F3B33!important;color:#F5F8F5!important;border-color:#1F3B33!important}
-    html.avcx-th-pp:not(.avcx-touch) .scroll-to-top{background:#1F3B33!important;opacity:.85;border-radius:0!important}
-    html.avcx-th-pp:not(.avcx-touch) .scroll-to-top:hover{opacity:1}
-    html.avcx-th-pp:not(.avcx-touch) .avcx-filtbar span[class^="avcx-n-"]{color:#5E7268!important}
+    /* 0.181 (cohesión): barra superior, pie, paginación, botón subir y ceros del resumen iguales en escritorio y celular */
+    html.avcx-th-pp nav.navbar,html.avcx-th-pp .avcx-topbar{background:#1F3B33!important;background-image:none!important}
+    html.avcx-th-pp footer,html.avcx-th-pp .sticky-footer{background:transparent!important;background-image:none!important;box-shadow:none!important;border-top:1.5px dashed #A9BAAF!important;margin:0 12px!important;font-family:${PP_FONT}!important}
+    html.avcx-th-pp :is(footer,.sticky-footer) *{background:transparent!important;color:#5E7268!important}
+    html.avcx-th-pp .pagination .page-link{background:#F5F8F5!important;color:#1F3B33!important;border-color:#BFCCC3!important;border-radius:0!important;box-shadow:none!important;font-family:${PP_FONT}!important;font-variant-numeric:tabular-nums}
+    html.avcx-th-pp .pagination .page-link:hover{background:#EEF3EF!important}
+    html.avcx-th-pp .pagination .page-item.disabled .page-link{color:#A9BAAF!important}
+    html.avcx-th-pp .pagination .page-item.active .page-link{background:#1F3B33!important;color:#F5F8F5!important;border-color:#1F3B33!important}
+    html.avcx-th-pp .scroll-to-top{background:#1F3B33!important;opacity:.85;border-radius:0!important}
+    html.avcx-th-pp .scroll-to-top:hover{opacity:1}
+    html.avcx-th-pp .avcx-filtbar span[class^="avcx-n-"]{color:#5E7268!important}
     /* celular: tarjetas de papel sin doble marco; abierta con borde de tinta; letra estrecha en razón social y tercer renglón */
     html.avcx-th-pp.avcx-touch .avcx-splitbar{font-size:14px;padding:5px 12px 4px 8px;margin-top:12px}
     html.avcx-th-pp.avcx-touch .avcx-splitbar+.avcx-split-scroll{border-left:0;border-right:0;border-bottom:0;background:transparent}
@@ -3498,7 +3499,19 @@
   // pestaña oculta = ambas cada HIDDEN_EVERY sondeos. Al volver a la pestaña, todo de inmediato.
   // Si el portal falla (mantenimiento, sin red, sesión vencida), se le pregunta cada vez menos: tras 2 fallas seguidas cada 30 s, luego 1, 2, 4 y hasta 5 minutos (0.105).
   let failN = 0;
+  // 0.180: en celular Android/Firefox congela la pestaña (pantalla apagada, otra app) y al volver no siempre llega visibilitychange:
+  // también se pone al día con focus/pageshow/online y si la última actualización correcta tiene más de STALE_SEC (sin temporizadores nuevos)
+  const STALE_SEC = 120;
+  let lastTickAt = 0, lastBackAt = 0, backN = 0, backWhy = '', staleN = 0;
+  function pollBack(why) {
+    if (document.hidden || Date.now() - lastBackAt < 5000) return; // varios eventos al volver: una sola puesta al día
+    if (why !== 'visible' && Date.now() - lastOkAt < AUTO_REFRESH_SEC * 2000) return; // focus/pageshow/online solo si el listado está atrasado (sin peticiones de más en escritorio)
+    lastBackAt = Date.now(); backN++; backWhy = why;
+    pollTick(true);
+  }
   async function pollTick(back) {
+    lastTickAt = Date.now();
+    if (back !== true && !document.hidden && !pollFails && Date.now() - lastOkAt > STALE_SEC * 1000) { back = true; staleN++; } // 0.180: atrasado: consulta ya, sin la pausa por fallas
     if (!document.hidden) themeFollow(); // 0.169: tema cambiado en otra pestaña
     if (pollFails >= 2 && back !== true) { if (failN++ % Math.min(2 ** (pollFails - 1), 20)) return; }
     else failN = 0;
@@ -3512,7 +3525,10 @@
 
   if (AUTO_REFRESH_SEC > 0) {
     setInterval(pollTick, AUTO_REFRESH_SEC * 1000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) pollTick(true); }); // al volver a la pestaña se pone al día de inmediato
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) pollBack('visible'); }); // al volver a la pestaña se pone al día de inmediato
+    window.addEventListener('focus', () => pollBack('focus'));
+    window.addEventListener('pageshow', () => pollBack('pageshow'));
+    window.addEventListener('online', () => pollBack('online'));
   }
 
 
@@ -4097,6 +4113,8 @@
       }
       info.pantalla = { barra, contenedores, viewport: vps, innerWidth: innerWidth, clientWidth: vw, scrollWidth: de.scrollWidth, screenWidth: screen.width, dpr: devicePixelRatio, escala: window.visualViewport ? visualViewport.scale : null, ua_movil: /Mobi|Android/i.test(navigator.userAgent), anchos };
     } catch (e) { info.pantalla = { error: e.message }; }
+    // 0.180: estado del sondeo (solo horas y conteos)
+    try { info.sondeo = { ultima_ok: fmtHora(lastOkAt), ultimo_tick: lastTickAt ? fmtHora(lastTickAt) : null, fallas_seguidas: pollFails, oculta: document.hidden, puestas_al_dia: backN, ultima_por: backWhy || null, atrasos: staleN, en_curso: pollBusy }; } catch (e) { info.sondeo = { error: e.message }; }
     const s = JSON.stringify(info, null, 1);
     if (await copyText(s)) {
       toast('Diagnóstico copiado al portapapeles. Revisa que no incluya datos que no quieras compartir.');
