@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.188
+// @version      0.190
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -618,7 +618,13 @@
     html.avcx-th-pp #avcx-ravc .avcx-rfoot{border-top:1.5px dashed #A9BAAF!important}
     html.avcx-th-pp #avcx-ravc .avcx-rtab :is(th,td){border-color:#CBD6CE!important}
     html.avcx-th-pp #avcx-ravc .avcx-rtab th{background:#EEF3EF!important}
-    html.avcx-th-pp #avcx-ravc :is(.avcx-rerr,.avcx-rwarn){border-radius:0!important}
+    html.avcx-th-pp #avcx-ravc :is(.avcx-rerr,.avcx-rwarn){border-radius:0!important;background:#F5F8F5!important;border-style:solid!important;border-width:1.5px 1.5px 1.5px 4px!important;font-weight:500} /* 0.189: alertas como los sellos: papel con borde y texto del color */
+    html.avcx-th-pp #avcx-ravc .avcx-rerr{border-color:#c62828!important;color:#c62828!important}
+    html.avcx-th-pp #avcx-ravc .avcx-rwarn{border-color:#8A6200!important;color:#8A6200!important}
+    html.avcx-th-pp #avcx-ravc .avcx-rstatus.bad{color:#8A6200!important}
+    html.avcx-th-pp #avcx-ravc .avcx-rnd{color:#8A6200!important}
+    html.avcx-th-pp #avcx-ravc .avcx-rmiss{color:#c62828!important}
+    html.avcx-th-pp .avcx-filtbar .avcx-dsep{display:none} /* 0.189: sin punto suelto antes de la línea perforada del talón */
     html.avcx-th-pp #avcx-ravc .avcx-rjson{background:#EEF3EF!important;border-color:#CBD6CE!important;border-radius:0!important}
     html.avcx-th-pp #avcx-ravc .avcx-rfolio{color:#1F3B33!important}
     html.avcx-th-pp #avcx-drop{background:rgba(31,59,51,.55)!important}
@@ -2098,7 +2104,7 @@
     const act = filterSnap.get(el) || [];
     const cut = s => (s.length > FILTER_VALUE_MAX ? s.slice(0, FILTER_VALUE_MAX - 1) + '…' : s);
     return '▸ Filtros' + (act.length ? ' · ' + escB(act.map(a => cut(a.v)).join(', ')) : '') +
-      (dayNums ? ` · <span class="avcx-day"><b class="avcx-n-ok${dayNums[0] ? '' : ' avcx-z'}">${dayNums[0]}</b> / <b class="avcx-n-bad${dayNums[1] ? '' : ' avcx-z'}">${dayNums[1]}</b> / <b class="avcx-n-warn${dayNums[2] ? '' : ' avcx-z'}">${dayNums[2]}</b></span>` : '') +
+      (dayNums ? `<span class="avcx-dsep"> · </span><span class="avcx-day"><b class="avcx-n-ok${dayNums[0] ? '' : ' avcx-z'}">${dayNums[0]}</b> / <b class="avcx-n-bad${dayNums[1] ? '' : ' avcx-z'}">${dayNums[1]}</b> / <b class="avcx-n-warn${dayNums[2] ? '' : ' avcx-z'}">${dayNums[2]}</b></span>` : '') +
       (AUTO_REFRESH_SEC > 0 && lastOkAt ? ' · ' + fmtHora(lastOkAt).slice(0, 5) : '');
   };
   const dayHtml = () => {
@@ -2109,7 +2115,7 @@
     if (IS_TOUCH && !open) { const h = barShort(el); if (bar.dataset.avcxH !== h) { bar.dataset.avcxH = h; bar.innerHTML = h; } return; }
     // 0.165: en escritorio el resumen del día va en los colores de las tablas (números > 0 en negritas)
     let h = escB(barText(open, el));
-    if (daySum && dayNums) h = h.replace(escB(daySum), dayHtml());
+    if (daySum && dayNums) h = h.includes(escB(' · ' + daySum)) ? h.replace(escB(' · ' + daySum), '<span class="avcx-dsep"> · </span>' + dayHtml()) : h.replace(escB(daySum), dayHtml()); // 0.189: el punto antes del resumen va aparte (Pasaporte lo oculta: la línea perforada ya separa)
     if (bar.dataset.avcxH !== h) { bar.dataset.avcxH = h; bar.innerHTML = h; }
   };
 
@@ -4323,9 +4329,14 @@
     document.removeEventListener('keydown', panelKey);
     updateBtn();
     if (panelDirty) { panelDirty = false; refreshAll(); } // refleja en el listado las altas y ediciones
+    const cb = panelOnClose; panelOnClose = null;
+    if (cb) try { cb(); } catch (_) { /* solo refresca el diálogo de Nuevo AVC */ }
   }
 
-  function openPanel() {
+  let panelOnClose = null; // 0.190: Nuevo AVC abre Catálogos en una pestaña y se actualiza al cerrarlo
+  function openPanel(tab, onClose) {
+    if (tab && CAT_TABS.some(t => t.id === tab)) panelTab = tab;
+    panelOnClose = typeof onClose === 'function' ? onClose : null;
     panelDirty = false;
     panel = mk('div');
     panel.id = 'avcx-panel';
@@ -5631,6 +5642,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return body;
   }
 
+  // 0.189: etiqueta corta de un problema para la lista del pie (lo no reconocido se recorta)
+  function avcfShort(t) {
+    const rm = /^Remesa (\S+) del pedimento (\S+): (.*)$/.exec(t);
+    if (rm) {
+      const k = /COVE/.test(rm[3]) ? 'COVE' : /USD/.test(rm[3]) ? 'importe USD' : /UMC/.test(rm[3]) ? 'cantidad UMC' : /Revisado/.test(rm[3]) ? 'marcar importe revisado' : rm[3];
+      return `Remesa ${rm[1]} (${rm[2]}): ${k}`;
+    }
+    const map = [[/pedimentos normales ni remesas/i, 'Pedimentos o remesas'], [/servicio web/i, 'Servicio web (token)'], [/^Aduana/i, 'Aduana'],
+      [/patente/i, 'Patente'], [/gafete/i, 'Gafete'], [/\bTAG\b/, 'TAG'], [/placas/i, 'Placas'], [/Datos adicionales/i, 'Datos adicionales (máx. 500)'], [/Candado/i, 'Candado demasiado largo']];
+    const hit = map.find(([re]) => re.test(t));
+    if (hit) return hit[1];
+    const c = clean(t).replace(/[.:]+$/, '');
+    return c.length > 48 ? c.slice(0, 47) + '…' : c;
+  }
   function avcfProblems(st, m) {
     const p = m.errors.slice();
     if (!hasWS()) p.push('Configura el servicio web ANAM (token de CSAAIWIN) para poder enviar.');
@@ -5700,7 +5725,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     avcfEl.append(box);
     avcfEl.addEventListener('mousedown', e => { if (e.target === avcfEl) avcfClose(); });
     document.body.appendChild(avcfEl);
-    avcfKey = e => { if (e.key === 'Escape') avcfClose(); };
+    avcfKey = e => { if (e.key === 'Escape' && !panel) avcfClose(); }; // 0.190: con Catálogos abierto encima, Esc cierra solo Catálogos
     document.addEventListener('keydown', avcfKey);
     return { body, foot };
   }
@@ -5754,18 +5779,40 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     const sig = ADUANA_SIGLAS && (ADUANA_SIGLAS[st.aduana] || ADUANA_SIGLAS[st.aduana + '0']);
     const gen = mk('div', 'avcx-rgen');
-    gen.innerHTML = `Aduana: <b>${esc(st.aduana || '?')}${sig ? ' (' + esc(sig) + ')' : ''}</b> · Operación: <b>${st.tipoOp === 'IMP' ? 'Importación' : st.tipoOp === 'EXP' ? 'Exportación' : '?'}</b> · ` +
+    const nd = '<span class="avcx-rnd">sin dato</span>'; // 0.190: antes "?"
+    gen.innerHTML = `Aduana: <b>${st.aduana ? esc(st.aduana) : nd}${sig ? ' (' + esc(sig) + ')' : ''}</b> · Operación: <b>${st.tipoOp === 'IMP' ? 'Importación' : st.tipoOp === 'EXP' ? 'Exportación' : nd}</b> · ` +
       `Modalidad: <b>${veh ? 'Vehicular' : 'Peatonal'}</b> <small>(${veh ? 'hay carta porte' : 'sin carta porte: solo gafete, sin TAG ni placas'})</small>`;
     body.append(sec('Datos generales', gen));
 
+    // 0.190: sin gafetes/TAGs, "Catálogos" abre el panel en esa pestaña; al cerrarlo el campo se rehace con lo dado de alta
+    const missCat = (id, txt, rebuild) => {
+      const d = mk('div', 'avcx-rmiss', txt + ' ');
+      const a = mk('a', 'avcx-rcat', 'darlo de alta en Catálogos');
+      a.href = '#';
+      a.addEventListener('click', e => { e.preventDefault(); openPanel(id, rebuild); });
+      d.append(a, '.');
+      return d;
+    };
     const gafSel = gafs.length
       ? sel(gafs.map(g => [g.k, `${g.name} — ${g.k}`]), st.gaf, v => { st.gaf = v; })
-      : mk('div', 'avcx-rmiss', 'No hay gafetes: da de alta uno en Catálogos (pestaña Gafetes).');
+      : missCat('g', 'No hay gafetes:', () => {
+        const g2 = avcfCatList('g');
+        if (!g2.length || !gafSel.isConnected) return;
+        st.gaf = g2[0].k;
+        gafSel.replaceWith(sel(g2.map(g => [g.k, `${g.name} — ${g.k}`]), st.gaf, v => { st.gaf = v; }));
+        check();
+      });
     const cruce = [field('Gafete (tramitador)', gafSel)];
     if (veh) {
       const tagSel = tags.length
         ? sel(tags.map(t => [t.k, `${t.k} — ${t.name}`]), st.tag, v => { st.tag = v; })
-        : mk('div', 'avcx-rmiss', 'No hay TAGs: da de alta uno en Catálogos (pestaña TAGs).');
+        : missCat('t', 'No hay TAGs:', () => {
+          const t2 = avcfCatList('t');
+          if (!t2.length || !tagSel.isConnected) return;
+          st.tag = t2[0].k;
+          tagSel.replaceWith(sel(t2.map(t => [t.k, `${t.k} — ${t.name}`]), st.tag, v => { st.tag = v; }));
+          check();
+        });
       const pl = inp(st.placas, v => { st.placas = v.toUpperCase().replace(/[\s-]/g, ''); }, 'TRACTO,CAJA', 'avcx-rup');
       cruce.push(field('TAG', tagSel), field('Placas', pl, 'De la carta porte. Tracto y caja separadas por coma, sin espacios.'));
       const cp = mk('div', 'avcx-rlist');
@@ -5830,7 +5877,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     function check() {
       const p = avcfProblems(st, m);
       sendBtn.disabled = p.length > 0 || avcfBusy;
-      status.textContent = p.length ? `${p.length === 1 ? 'Falta' : 'Faltan ' + p.length + ' cosas'}: ${p[0]}` : 'Listo para enviar. Revisa todo antes de confirmar.';
+      // 0.189: con varias cosas pendientes, lista corta de todas (antes solo salía la primera); el texto completo de cada una queda en el tooltip y en su sección
+      if (p.length > 1) {
+        const labs = [...new Set(p.map(avcfShort))];
+        status.replaceChildren(mk('b', null, `Faltan ${p.length} cosas:`), ...labs.map(t => mk('div', null, '· ' + t)));
+      } else status.textContent = p.length ? `Falta: ${p[0]}` : 'Listo para enviar. Revisa todo antes de confirmar.';
       status.title = p.join('\n');
       status.className = 'avcx-rstatus' + (p.length ? ' bad' : ' ok');
       if (pre && !pre.hidden) pre.textContent = JSON.stringify(avcfBody(st), null, 2);
@@ -5948,6 +5999,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     #avcx-ravc .avcx-rfld small{font-size:11px;color:#777}
     #avcx-ravc input,#avcx-ravc select{font:13px system-ui,sans-serif;padding:5px 7px;border:1px solid #bbb;border-radius:4px;background:#fff;color:#222;box-sizing:border-box;min-width:0}
     #avcx-ravc .avcx-rup{text-transform:uppercase}
+    #avcx-ravc .avcx-rup::placeholder{text-transform:none} /* 0.189: el texto guía no se convierte a mayúsculas */
+    #avcx-ravc .avcx-rnd{color:#a05a00;font-weight:600} /* 0.190 */
+    #avcx-ravc .avcx-rcat{color:inherit;text-decoration:underline;font-weight:600;cursor:pointer}
     #avcx-ravc .avcx-rnum{width:110px;text-align:right}
     #avcx-ravc .avcx-rtab{border-collapse:collapse;width:100%;font-size:12px}
     #avcx-ravc .avcx-rtab th,#avcx-ravc .avcx-rtab td{border:1px solid #ddd;padding:4px 6px;text-align:left;white-space:nowrap}
