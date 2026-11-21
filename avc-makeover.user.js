@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.169
+// @version      0.170
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -515,7 +515,7 @@
     html.avcx-th-pp .avcx-table tr[data-avcx-exp]>td{background-color:rgba(31,59,51,.035)!important}
     html.avcx-th-pp .avcx-table tbody tr[data-avcx-exp]>td:not(.avcx-folcell){color:#8a958f!important}
     /* pestañas de expediente en el color de su estatus (texto, flecha y conteo como siempre) */
-    html.avcx-th-pp .avcx-splitbar{display:inline-block;width:auto;max-width:100%;margin:16px 0 0;padding:5px 14px 4px 10px;border:0!important;border-radius:5px 5px 0 0;
+    html.avcx-th-pp .avcx-splitbar{display:block;width:fit-content;max-width:100%;margin:16px 0 0;padding:5px 14px 4px 10px;border:0!important;border-radius:5px 5px 0 0;
       background:#7C8B83;color:#F5F8F5;font-weight:700;font-size:16px;line-height:1.3;font-stretch:80%;letter-spacing:.2px}
     html.avcx-th-pp .avcx-splitbar:hover{filter:brightness(1.08)}
     html.avcx-th-pp .avcx-splitbar.avcx-sb-bad{background:#c62828}
@@ -555,6 +555,19 @@
     html.avcx-th-pp:not(.avcx-touch) .avcx-table tbody td{border-top:0!important;border-bottom:1px dotted #A9BAAF!important}
     html.avcx-th-pp:not(.avcx-touch) .avcx-table tbody tr:last-child>td{border-bottom:0!important}
     html.avcx-th-pp:not(.avcx-touch) .avcx-table tbody tr:hover>td{background-color:rgba(31,59,51,.06)!important;box-shadow:inset 0 -2px 0 #1F3B33}
+    /* 0.170 (escritorio): contenedores del portal alrededor de tablas y Filtros sin fondo (la franja bajo Filtros); barra superior en tinta; pie, paginación y botón subir del tema; ceros del resumen en gris */
+    html.avcx-th-pp:not(.avcx-touch) #content-wrapper :is(.card,.card-body,.shadow,.table-responsive,.container-fluid,.row,[class*="col-"]):has(#avcx-split,.avcx-filtbar),
+    html.avcx-th-pp:not(.avcx-touch) .card:has(#avcx-split,.avcx-filtbar)>:is(.card-header,.card-footer){background:transparent!important;background-image:none!important;border-color:transparent!important;box-shadow:none!important}
+    html.avcx-th-pp:not(.avcx-touch) nav.navbar,html.avcx-th-pp:not(.avcx-touch) .avcx-topbar{background:#1F3B33!important;background-image:none!important}
+    html.avcx-th-pp:not(.avcx-touch) footer,html.avcx-th-pp:not(.avcx-touch) .sticky-footer{background:transparent!important;background-image:none!important;box-shadow:none!important;border-top:1.5px dashed #A9BAAF!important;margin:0 12px!important;font-family:${PP_FONT}!important}
+    html.avcx-th-pp:not(.avcx-touch) :is(footer,.sticky-footer) *{background:transparent!important;color:#5E7268!important}
+    html.avcx-th-pp:not(.avcx-touch) .pagination .page-link{background:#F5F8F5!important;color:#1F3B33!important;border-color:#BFCCC3!important;border-radius:0!important;box-shadow:none!important;font-family:${PP_FONT}!important;font-variant-numeric:tabular-nums}
+    html.avcx-th-pp:not(.avcx-touch) .pagination .page-link:hover{background:#EEF3EF!important}
+    html.avcx-th-pp:not(.avcx-touch) .pagination .page-item.disabled .page-link{color:#A9BAAF!important}
+    html.avcx-th-pp:not(.avcx-touch) .pagination .page-item.active .page-link{background:#1F3B33!important;color:#F5F8F5!important;border-color:#1F3B33!important}
+    html.avcx-th-pp:not(.avcx-touch) .scroll-to-top{background:#1F3B33!important;opacity:.85;border-radius:0!important}
+    html.avcx-th-pp:not(.avcx-touch) .scroll-to-top:hover{opacity:1}
+    html.avcx-th-pp:not(.avcx-touch) .avcx-filtbar span[class^="avcx-n-"]{color:#5E7268!important}
     /* celular: tarjetas de papel sin doble marco; abierta con borde de tinta; letra estrecha en razón social y tercer renglón */
     html.avcx-th-pp.avcx-touch .avcx-splitbar{font-size:14px;padding:5px 12px 4px 8px;margin-top:12px}
     html.avcx-th-pp.avcx-touch .avcx-splitbar.avcx-sb-empty{font-size:11px;font-weight:600;line-height:16px;padding:0 10px;margin-top:8px}
@@ -4052,7 +4065,17 @@
         }
         return { y, elementos: out };
       });
-      info.pantalla = { barra, viewport: vps, innerWidth: innerWidth, clientWidth: vw, scrollWidth: de.scrollWidth, screenWidth: screen.width, dpr: devicePixelRatio, escala: window.visualViewport ? visualViewport.scale : null, ua_movil: /Mobi|Android/i.test(navigator.userAgent), anchos };
+      // 0.170: contenedores alrededor de Filtros y tablas (fondo, sombra, borde): para la franja bajo Filtros en el tema Pasaporte
+      const desc = n => { const cs = getComputedStyle(n), r = n.getBoundingClientRect();
+        return n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') + (typeof n.className === 'string' && n.className ? '.' + n.className.trim().split(/\s+/).slice(0, 4).join('.') : '') +
+          ' top ' + Math.round(r.top) + ' alto ' + Math.round(r.height) + ' fondo ' + cs.backgroundColor + (cs.backgroundImage !== 'none' ? ' img' : '') + ' sombra ' + cs.boxShadow + ' borde ' + cs.borderTopWidth + ' ' + cs.borderTopColor; };
+      const contenedores = [];
+      const sp = document.getElementById('avcx-split');
+      for (let n = sp && sp.parentElement, i = 0; n && n !== document.body && i < 8; n = n.parentElement, i++) {
+        contenedores.push(desc(n));
+        if (i < 3) [...n.children].forEach(c => { if (c !== sp && !c.contains(sp) && contenedores.length < 30) contenedores.push('  hijo: ' + desc(c)); });
+      }
+      info.pantalla = { barra, contenedores, viewport: vps, innerWidth: innerWidth, clientWidth: vw, scrollWidth: de.scrollWidth, screenWidth: screen.width, dpr: devicePixelRatio, escala: window.visualViewport ? visualViewport.scale : null, ua_movil: /Mobi|Android/i.test(navigator.userAgent), anchos };
     } catch (e) { info.pantalla = { error: e.message }; }
     const s = JSON.stringify(info, null, 1);
     if (await copyText(s)) {
