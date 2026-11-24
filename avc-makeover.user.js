@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.192
+// @version      0.193
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -697,6 +697,28 @@
     html.avcx-th-pp.avcx-touch .avcx-table tbody td.avcx-actcell{border-top:1px dotted #A9BAAF!important}
     html.avcx-th-pp.avcx-touch .avcx-table tbody td.avcx-stcell[data-avcx-stx]::after{font-size:12px}
     html.avcx-th-pp.avcx-touch .avcx-table tbody tr[data-avcx-long] td.avcx-stcell[data-avcx-stx]::before{border-width:3px}
+    /* 0.193 (Pasaporte celular): tarjeta cerrada siempre en 3 renglones: pedimento | sello; razón social | hora · rec.; RFC · folio · aduana · tipo | modalidad.
+       Sin ícono de estatus (el sello ya lo dice). La celda de estatus va con display:contents: su sello (::before), su hora (::after) y la duración (avcx-recdur)
+       se acomodan como piezas de la tarjeta; el texto de la celda sigue ahí (font-size 0) para copiado y avisos. Sin column-gap: el texto anónimo no deja hueco. */
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr{column-gap:0}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr::after{order:7}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell{display:contents!important}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell>i{display:none!important}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td[data-avcx-col="ped"]{flex:1 1 0;min-width:0}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell[data-avcx-stx]::before{order:2;flex:0 0 auto;align-self:center;max-width:62%;margin-left:10px}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td[data-avcx-col="rs"]{order:4;flex:1 1 0;min-width:0}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell::after{order:5;flex:0 0 auto;margin-left:8px;white-space:nowrap;text-align:right}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr[data-avcx-status] td.avcx-stcell[data-avcx-tsh]::after{content:attr(data-avcx-tsh)}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr[data-avcx-extra][data-avcx-status="warn"] td.avcx-stcell::after{content:"de otra hoja"}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr[data-avcx-exp] td.avcx-stcell::after{content:"Vencido " attr(data-avcx-exp)}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell>.avcx-recdur{order:6;flex:0 0 auto;margin-left:8px!important}
+    html.avcx-th-pp.avcx-touch .avcx-recdur::before{content:attr(data-t) " · "}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td[data-avcx-col="rfc"]{order:8;margin-right:10px!important}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-folcell{order:9;margin-right:10px!important}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-aducell{order:10;margin-right:10px!important}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-tipcell{order:11;margin-right:10px!important}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-modcell{order:12}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-actcell{order:13}
     html.avcx-th-pp.avcx-touch .avcx-filtbar{padding:8px 16px;font-size:14px}
     html.avcx-th-pp.avcx-touch .avcx-filtbar b[class^="avcx-n-"]{font-size:16px}
   `;
@@ -2385,7 +2407,7 @@
       let h = head;
       rows.slice(0, SPLIT_MAX_ROWS).forEach(r => { h += r.offsetHeight + (IS_TOUCH ? CARD_GAP_PX : 0); });
       if (h <= head) return; // sin medidas todavía
-      v = Math.ceil(h) + 2 + 'px';
+      v = Math.ceil(IS_TOUCH ? h - CARD_GAP_PX : h) + 2 + 'px'; // 0.193: en celular sin el hueco tras la 4a tarjeta (se asomaba una tira de la 5a)
     }
     if (w.style.maxHeight !== v) w.style.maxHeight = v;
     // el scroll vertical le resta ancho a la tabla: si el desborde horizontal es chico, se recorta en vez de mostrar otra barra (ver FIT_TOLERANCE_PX)
