@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.196
+// @version      0.198
 // @description  AVC MAKEOVER (y llenado de la página 1 de SERVEX en VUCEM): renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -290,7 +290,9 @@
   //   - Descripción en español y corta (SX_DESC; lo que corrijas a mano se aprende en el gestor, store 'sx_desc').
   //   - Justificación: "Dado que el vuelo para la mercancía de exportación parte a las {hora final + 2 h} horas y se requiere al menos 2 horas
   //     para maniobras y ser esta mercancía {perecederos | de alto valor | una mascota viva}." (alto valor = billetes/divisas; mascota = perros/gatos).
-  //   - Transporte (vehículo y arribo/salida) vacíos. Gafete del responsable: el guardado en el gestor (Buscar + Agregar; el nombre lo da VUCEM).
+  //   - Transporte (vehículo y arribo/salida) vacíos. Gafete del responsable: el guardado en el gestor (Buscar + Agregar). VUCEM casi nunca lo
+//     encuentra: el nombre sale del catálogo de Gafetes de AVC (el último usado; última palabra = materno, penúltima = paterno, resto = nombre).
+//   - VUCEM casi nunca logra consultar el pedimento ("No fue posible realizar la consulta…"): el tipo (Remesa consolidado / Normal) lo pone el script.
   //   - Pago: línea de captura pegada por el usuario y monto 306 (Consultar).
   // Datos: nada sale del equipo salvo lo que el propio portal manda a VUCEM. La línea de captura no se guarda.
   const SX_MONTO = '306';            // monto del servicio extraordinario (individual)
@@ -499,13 +501,15 @@
 <label>País de procedencia (origen: México)</label><select class="sxv-pais"></select>
 <label>Justificación</label><select class="sxv-tipo">${SX_TIPOS.map(t => `<option>${t}</option>`).join('')}</select>
 <textarea class="sxv-just" rows="4" maxlength="1000" style="margin-top:4px"></textarea>
-<div class="sxv-g2"><div><label>Gafete</label><input class="sxv-gaf" maxlength="30"></div><div><label>Línea de captura · $${SX_MONTO}</label><input class="sxv-lin" maxlength="24" placeholder="0000-0000-0000-0000-0000"></div></div>
+<div class="sxv-g2"><div><label>Gafete</label><input class="sxv-gaf" maxlength="30"></div><div><label>Responsable (catálogo)</label><select class="sxv-resp"></select></div></div>
+<div class="sxv-split sxv-mut" style="font-size:11px;margin-top:3px"></div>
+<label>Línea de captura · $${SX_MONTO}</label><input class="sxv-lin" maxlength="24" placeholder="0000-0000-0000-0000-0000">
 <button type="button" class="sxv-go">Llenar página 1</button>
 <div class="sxv-log"></div>
 <div class="sxv-ft">Revisa y da Continuar tú. El script no firma ni envía.</div>`;
     document.body.append(btn, pan);
     const q = s => pan.querySelector(s);
-    const f = { fecha: q('.sxv-fecha'), hi: q('.sxv-hi'), hf: q('.sxv-hf'), desc: q('.sxv-desc'), pais: q('.sxv-pais'), tipo: q('.sxv-tipo'), just: q('.sxv-just'), gaf: q('.sxv-gaf'), lin: q('.sxv-lin') };
+    const f = { resp: q('.sxv-resp'), fecha: q('.sxv-fecha'), hi: q('.sxv-hi'), hf: q('.sxv-hf'), desc: q('.sxv-desc'), pais: q('.sxv-pais'), tipo: q('.sxv-tipo'), just: q('.sxv-just'), gaf: q('.sxv-gaf'), lin: q('.sxv-lin') };
     f.gaf.value = store.get('sx_gafete', SX_GAFETE_DEF);
     // Países: la misma lista del portal (clave del catálogo de VUCEM)
     const pSel = document.getElementById('serviciosDTO.mercanciaDTO.paisProcedencia');
@@ -536,6 +540,21 @@
     f.lin.addEventListener('input', () => { const r = linReal(); f.lin.value = (r.match(/.{1,4}/g) || []).join('-'); });
     f.tipo.addEventListener('change', () => { justAuto = true; refreshJust(); });
     f.just.addEventListener('input', () => { justAuto = false; });
+    // 0.198: Responsable = nombres del catálogo de Gafetes de AVC (store 'catalog': g = {gafete: {name, u}}), por uso más reciente;
+    // queda elegido el último que se eligió aquí (store 'sx_resp') o, si no, el último usado en AVC. Solo se usa si VUCEM no encuentra el gafete.
+    const splitTxt = () => { const w = sxClean(f.resp.value).toUpperCase().split(/\s+/).filter(Boolean); q('.sxv-split').textContent = !w.length ? 'El catálogo de Gafetes está vacío' : w.length < 3 ? 'Necesita nombre y dos apellidos' : `Nombre: ${w.slice(0, -2).join(' ')} · Paterno: ${w[w.length - 2]} · Materno: ${w[w.length - 1]}`; };
+    (() => {
+      let names = [];
+      try {
+        const g = (JSON.parse(store.get('catalog', '') || '{}') || {}).g || {};
+        names = [...new Set(Object.values(g).filter(v => v && sxClean(v.name)).sort((a, b) => (b.u || 0) - (a.u || 0)).map(v => sxClean(v.name).toUpperCase()))];
+      } catch (_) { names = []; }
+      f.resp.innerHTML = names.map(n => `<option>${esc(n)}</option>`).join('');
+      const last = store.get('sx_resp', '');
+      if (last && names.includes(last)) f.resp.value = last;
+      splitTxt();
+    })();
+    f.resp.addEventListener('change', () => { store.set('sx_resp', f.resp.value); splitTxt(); });
     const saveGaf = () => store.set('sx_gafete', sxClean(f.gaf.value).toUpperCase());
     f.gaf.addEventListener('change', saveGaf);
     refreshJust();
@@ -684,13 +703,17 @@
             id = gridIds('gridPedimento').find(x => !before.includes(x));
             if (!id) throw new Error('VUCEM no lo agregó');
           }
-          const msg = takeMsg();
+          takeMsg(); // VUCEM casi nunca logra consultarlo ("No fue posible realizar la consulta…"): es lo normal
           const row = $('#gridPedimento').jqGrid('getRowData', id);
-          const tipo = row.tipoPedimentoEvaluacion;
-          const isRem = tipo === 'ESTPE.RC' || (!tipo && e.rem.length);
-          if (isRem !== !!e.rem.length) return { warn: `VUCEM lo marca como ${sxClean(row.tipoDePedimento) || 'otro tipo'}: revisa la celda`, note: msg };
-          $('#gridPedimento').jqGrid('setRowData', id, toPage(isRem ? { cove: val } : { numeros: val }));
-          return { note: (dup ? 'ya estaba · ' : '') + (isRem ? 'COVE ' + val : 'Número(s) ' + val) + (msg ? ' — ' + msg : ''), hideMsg: true };
+          const tipo = sxClean(row.tipoPedimentoEvaluacion);
+          const want = e.rem.length ? 'ESTPE.RC' : 'ESTPE.NM';
+          // 0.197: si VUCEM no lo pudo evaluar (vacío o "Por Evaluar") el tipo lo pone el script según el documento (remesa o normal)
+          if (tipo && tipo !== 'ESTPE.PE' && tipo !== want) return { warn: `VUCEM lo marca como ${sxClean(row.tipoDePedimento) || tipo}: revisa la celda`, hideMsg: true };
+          const isRem = want === 'ESTPE.RC';
+          $('#gridPedimento').jqGrid('setRowData', id, toPage(Object.assign(
+            { tipoPedimentoEvaluacion: want, tipoDePedimento: isRem ? 'Remesa consolidado' : 'Normal' },
+            isRem ? { cove: val, numeros: '' } : { numeros: val, cove: '' })));
+          return { note: (dup ? 'ya estaba · ' : '') + (isRem ? 'Remesa consolidado · ' + val : 'Normal · Número(s) ' + val), hideMsg: true };
         });
       }
       await step('Países: México → ' + (f.pais.value || '?'), () => {
@@ -712,12 +735,25 @@
         if (exists) return { note: 'ya estaba' };
         setVal('#gafeteRespoDespacho', gaf);
         pageCall('buscarGafete');
-        if (!sxClean($('#nombreRespoDespacho').val())) throw new Error('VUCEM no encontró el gafete');
+        let fromCat = '';
+        if (!sxClean($('#nombreRespoDespacho').val())) {
+          // 0.197: VUCEM casi nunca lo encuentra; tras buscar deja escribir el nombre. Se toma del catálogo de Gafetes de AVC (el último usado):
+          // última palabra = materno, penúltima = paterno, lo demás = nombre(s)
+          takeMsg();
+          const g = sxClean(f.resp.value).toUpperCase();
+          if (!g) throw new Error('VUCEM no lo encontró y el catálogo de Gafetes está vacío');
+          const w = g.split(/\s+/);
+          if (w.length < 3) throw new Error(`el nombre del catálogo ("${g}") necesita nombre y dos apellidos`);
+          $('#nombreRespoDespacho').prop('readonly', false).val(w.slice(0, -2).join(' '));
+          $('#paternoRespoDespacho').prop('readonly', false).val(w[w.length - 2]);
+          $('#maternoRespoDespacho').prop('readonly', false).val(w[w.length - 1]);
+          fromCat = ' (del catálogo)';
+        }
         const who = [$('#nombreRespoDespacho').val(), $('#paternoRespoDespacho').val(), $('#maternoRespoDespacho').val()].map(sxClean).join(' ');
         const before = gridIds('gridPersonas').length;
         pageCall('addPersona');
         if (gridIds('gridPersonas').length <= before) throw new Error('no se agregó');
-        return { note: who, hideMsg: true };
+        return { note: who + fromCat, hideMsg: true };
       });
       const lin = linReal();
       if (lin) await step('Pago ' + lin, async () => {
