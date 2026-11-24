@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.193
-// @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
+// @version      0.194
+// @description  AVC MAKEOVER (y llenado de la página 1 de SERVEX en VUCEM): renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @match        https://avc.anam.gob.mx/avc/*
 // @match        https://avc.anam.gob.mx/show/*
 // @match        https://avc.anam.gob.mx/search_avc/*
+// @match        https://www.ventanillaunica.gob.mx/ventanilla-aga2-HA/*
 // @run-at       document-idle
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -253,6 +254,468 @@
     set: (k, v) => { try { if (typeof GM_setValue === 'function') GM_setValue(k, v); else mem0[k] = v; } catch (_) { /* ignore */ } },
   };
   DEBUG = store.get('debug', '0') === '1'; // persistente: se conserva entre sesiones
+  // 0.194: ayudantes de lectura de PDF movidos aquí (antes iban en NUEVO AVC DESDE ARCHIVOS) porque el módulo SERVEX los usa y
+  // en VUCEM el script termina antes de llegar a esa sección.
+  const avcfDash = s => String(s || '').replace(/[‐-―−﹣－]/g, '-');
+  // pdf.js (Apache 2.0, Mozilla) va incrustado al final del script; se evalúa solo la primera vez que se lee un PDF.
+  // Corre en este mismo hilo ("fake worker"): no carga nada de internet ni crea workers con otros archivos.
+  const getPdfjs = (() => {
+    let lib = null;
+    return () => {
+      if (!lib) {
+        const [w, p] = pdfjsBundle();
+        globalThis.pdfjsWorker = w; // pdf.js usa este manejador en el hilo principal en lugar de un worker
+        lib = p;
+      }
+      return lib;
+    };
+  })();
+  const avcfTipoOp = text => { const m = text.match(/T\.\s*OPER:?\s*(IMP|EXP|TRA)\b/i); return m ? m[1].toUpperCase() : ''; };
+  const avcfClave = text => ((text.match(/CVE\.\s*PEDIMENTO:?\s*([A-Z0-9]{2})\b/i) || [])[1] || '').toUpperCase();
+
+  /* ================= SERVEX: SERVICIO EXTRAORDINARIO EN VUCEM (0.194) ================= */
+  // En la página "Solicitud servicios extraordinarios" de VUCEM (ventanillaunica.gob.mx) el script NO carga nada de AVC: solo este módulo.
+  // Panel "SERVEX" (abajo a la derecha): sueltas los PDF de la operación y llena la PÁGINA 1 (Paso 1 Capturar solicitud) usando los mismos
+  // botones y validaciones del portal (sus peticiones van a VUCEM, igual que si lo hicieras a mano). Nunca da Continuar, no firma ni envía.
+  //   - Impresión de remesa (formato de aviso consolidado de CSAAIWIN) o forma simplificada del pedimento normal: RFC, aduana E/S (3 dígitos),
+  //     tipo de operación, pedimento, COVE de cada remesa y la guía (observaciones o "NUMERO (GUIA/ORDEN EMBARQUE)/ID").
+  //   - Guía aérea (MAWB en PDF con texto): descripción ("Nature and Quantity of Goods", por posición) y país de destino (aeropuerto o ciudad).
+  //   Los PDF convertidos para VUCEM (imágenes a 300 dpi) no traen texto: no se pueden leer (son los que se suben en el Paso 3).
+  // Reglas del usuario (24-11-2026):
+  //   - Tipo de solicitud Individual. Fecha (inicio = final) y horario los pone el usuario; se precargan mañana (hora de Cancún) y 07:00-09:00.
+  //   - Despacho: SOLO aduana y tipo de operación (sin sección, recinto, LDA ni DD).
+  //   - Pedimento: se escribe y se da Agregar; normal = el mismo número en "Número(s)"; remesas = todos los COVE separados por coma en
+  //     "Comprobante de valor" (en orden de remesa).
+  //   - País de origen siempre MEX; procedencia = país de destino de la guía.
+  //   - Descripción en español y corta (SX_DESC; lo que corrijas a mano se aprende en el gestor, store 'sx_desc').
+  //   - Justificación: "Dado que el vuelo para la mercancía de exportación parte a las {hora final + 2 h} horas y se requiere al menos 2 horas
+  //     para maniobras y ser esta mercancía {perecederos | de alto valor | una mascota viva}." (alto valor = billetes/divisas; mascota = perros/gatos).
+  //   - Transporte (vehículo y arribo/salida) vacíos. Gafete del responsable: el guardado en el gestor (Buscar + Agregar; el nombre lo da VUCEM).
+  //   - Pago: línea de captura pegada por el usuario y monto 306 (Consultar).
+  // Datos: nada sale del equipo salvo lo que el propio portal manda a VUCEM. La línea de captura no se guarda.
+  const SX_MONTO = '306';            // monto del servicio extraordinario (individual)
+  const SX_GAFETE_DEF = '';          // gafete del responsable: se escribe una vez en el panel y se guarda en el gestor (store 'sx_gafete'); no va en el script (repo público)
+  const SX_HORA_INI = '07:00', SX_HORA_FIN = '09:00';
+  const SX_JUST = (hora, tipo) => `Dado que el vuelo para la mercancía de exportación parte a las ${hora} horas y se requiere al menos 2 horas para maniobras y ser esta mercancía ${tipo}.`;
+  const SX_TIPOS = ['perecederos', 'de alto valor', 'una mascota viva'];
+  // Descripción corta en español a partir del texto de la guía (se buscan todas; se juntan sin repetir en el orden de la guía)
+  const SX_DESC = [
+    [/LOBSTER|LANGOSTA/, 'LANGOSTA VIVA'], [/\bDOGS?\b|\bPUPP(Y|IES)\b|PERRO/, 'PERRO VIVO'], [/\bCATS?\b|\bKITTENS?\b|\bGATO/, 'GATO VIVO'],
+    [/BANK\s*NOTES?|BANKNOTES?|BILLETES|CURRENCY|DIVISAS/, 'BILLETES DE BANCO'],
+    [/BASIL|ALBAHACA/, 'ALBAHACA FRESCA'], [/OREGANO/, 'OREGANO FRESCO'], [/THYME|TOMILLO/, 'TOMILLO FRESCO'], [/SHISO/, 'SHISO FRESCO'],
+    [/MINT\b|HIERBABUENA|MENTA/, 'MENTA FRESCA'], [/ROSEMARY|ROMERO/, 'ROMERO FRESCO'], [/TARRAGON|ESTRAGON/, 'ESTRAGON FRESCO'],
+    [/CHIVES|CEBOLLIN/, 'CEBOLLIN FRESCO'], [/\bHERBS?\b|HIERBAS/, 'HIERBAS FRESCAS'],
+    [/OCTOPUS|PULPO/, 'PULPO'], [/SEA\s*CUCUMBER|PEPINO DE MAR/, 'PEPINO DE MAR'], [/\bFISH\b|PESCADO/, 'PESCADO FRESCO'],
+    [/SHRIMP|CAMARON/, 'CAMARON'], [/VEGETABLES?|VERDURAS|LEGUMBRES/, 'VERDURAS FRESCAS'], [/\bFRUITS?\b|FRUTAS?\b/, 'FRUTA FRESCA'],
+    [/FLOWERS?|FLORES/, 'FLORES'],
+  ];
+  // País de destino (clave del catálogo de VUCEM) por aeropuerto IATA o ciudad. Los de México no van (son escalas).
+  const SX_AEROP = {
+    USA: 'MIA IAH HOU LAX JFK EWR ORD DFW ATL SFO MCO FLL SEA BOS PHL DEN LAS PHX CLT MSP DTW SLC SAN TPA IAD DCA BWI MEM SDF CVG ANC ONT AUS SAT ELP LRD MFE HRL BRO OAK SJC',
+    CAN: 'YYZ YUL YVR YYC YEG YOW', CHN: 'PVG SHA PEK PKX CAN SZX CTU TFU XMN HGH NKG TAO CKG TSN WUH KMG CGO', HKG: 'HKG', TWN: 'TPE',
+    JPN: 'NRT HND KIX NGO', KOR: 'ICN GMP', SGP: 'SIN', VNM: 'SGN HAN', ARE: 'DXB AUH DWC', ESP: 'MAD BCN', FRA: 'CDG ORY', DEU: 'FRA MUC',
+    GBR: 'LHR LGW STN', ZYA: 'AMS', ITA: 'FCO MXP', PAN: 'PTY', COL: 'BOG MDE', GTM: 'GUA', CUB: 'HAV', CRI: 'SJO', SLV: 'SAL', PER: 'LIM', CHL: 'SCL', BRA: 'GRU VCP',
+  };
+  const SX_CIUDAD = [
+    [/MIAMI|HOUSTON|LOS ANGELES|NEW YORK|NEWARK|CHICAGO|DALLAS|ATLANTA|SAN FRANCISCO|ORLANDO|FORT LAUDERDALE|SEATTLE|BOSTON|LAS VEGAS|PHOENIX|DENVER|MEMPHIS|LOUISVILLE|CINCINNATI|ANCHORAGE|LAREDO|MCALLEN/, 'USA'],
+    [/TORONTO|MONTREAL|VANCOUVER|CALGARY/, 'CAN'], [/SHANGHAI|SHENZHEN|GUANGZHOU|BEIJING|CHENGDU|XIAMEN|HANGZHOU|NANJING|QINGDAO|CHONGQING|TIANJIN|WUHAN/, 'CHN'],
+    [/HONG\s*KONG/, 'HKG'], [/TAIPEI/, 'TWN'], [/TOKYO|NARITA|OSAKA/, 'JPN'], [/SEOUL|INCHEON/, 'KOR'], [/SINGAPORE/, 'SGP'], [/DUBAI/, 'ARE'],
+    [/MADRID|BARCELONA/, 'ESP'], [/PARIS/, 'FRA'], [/FRANKFURT|MUNICH/, 'DEU'], [/LONDON/, 'GBR'], [/AMSTERDAM/, 'ZYA'], [/PANAMA/, 'PAN'], [/BOGOTA/, 'COL'],
+  ];
+
+  function servexMain() {
+    const PJ = () => PW.jQuery || PW.$;
+    const isServex = () => !!(document.getElementById('selectTipoServicio') && document.getElementById('aduanaDespacho') && document.getElementById('numeroPedimento'));
+    if (!isServex()) return; // otra página de VUCEM: nada
+    const sxClean = s => String(s || '').replace(/\s+/g, ' ').trim();
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const toPage = o => PW.JSON.parse(JSON.stringify(o)); // objeto creado en la página (Firefox no deja que la página lea objetos del script)
+    let learned = {};
+    try { learned = JSON.parse(store.get('sx_desc', '{}')) || {}; } catch (_) { learned = {}; }
+    const descKey = s => sxClean(s).toUpperCase().slice(0, 80);
+
+    /* ---------- lectura de archivos ---------- */
+    const guiaNorm = s => { const d = String(s || '').replace(/\D/g, ''); return d.length >= 11 ? d.slice(0, 11) : d; };
+    const guiaFmt = d => (d.length === 11 ? `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}` : d);
+    function sxCountry(lines) {
+      const up = lines.map(l => l.toUpperCase());
+      const iDest = up.findIndex(l => /AIRPORT OF DESTINATION/.test(l));
+      const destLines = iDest >= 0 ? up.slice(iDest + 1, iDest + 3) : [];
+      for (const l of destLines) for (const [re, c] of SX_CIUDAD) if (re.test(l)) return c;
+      const codeOf = tok => Object.keys(SX_AEROP).find(c => SX_AEROP[c].split(' ').includes(tok));
+      const iRt = up.findIndex(l => /BY FIRST CARRIER/.test(l));
+      const rt = iRt >= 0 ? up.slice(iRt + 1, iRt + 3).join(' ') : '';
+      let found = '';
+      (rt.match(/\b[A-Z]{3}\b/g) || []).forEach(t => { const c = codeOf(t); if (c) found = c; });
+      if (found) return found;
+      const dep = up.find(l => /\b[A-Z]{3}\s*\/\s*[A-Z]{3}\b/.test(l));
+      if (dep) { const c = codeOf(dep.match(/\/\s*([A-Z]{3})\b/)[1]); if (c) return c; }
+      for (const l of destLines) (l.match(/\b[A-Z]{3}\b/g) || []).forEach(t => { const c = codeOf(t); if (c) found = c; });
+      return found;
+    }
+    // Texto de "Nature and Quantity of Goods": lo que queda debajo del encabezado y a su derecha, antes de los totales
+    function sxNature(items) {
+      const hd = items.find(t => /Nature\s+and\s+Quantity/i.test(t.s)) || items.find(t => /^\s*Nature\b/i.test(t.s));
+      if (!hd) return '';
+      const x0 = hd.x - 15;
+      const stops = items.filter(t => t.y < hd.y - 2 && /^\s*(Prepaid|Weight\s+Charge|Valuation\s+Charge)\b/i.test(t.s)).map(t => t.y);
+      const yEnd = stops.length ? Math.max(...stops) : -Infinity;
+      const sel = items.filter(t => t.x >= x0 && t.y < hd.y - 2 && t.y > yEnd + 1 && !/incl\.?\s*Dimensions|Volume\)|^\(?incl/i.test(t.s));
+      return avcfLines(sel).map(sxClean).filter(Boolean).join(' ');
+    }
+    function sxDescOf(nature) {
+      const k = descKey(nature);
+      if (k && learned[k]) return { d: learned[k], known: true };
+      const up = nature.toUpperCase(), out = [];
+      SX_DESC.map(([re, es]) => { const m = re.exec(up); return m ? { i: m.index, es } : null; }).filter(Boolean)
+        .sort((a, b) => a.i - b.i).forEach(o => { if (!out.includes(o.es)) out.push(o.es); });
+      return out.length ? { d: out.join(', '), known: true } : { d: sxClean(nature).slice(0, 120), known: false };
+    }
+    const sxTipoDe = d => (/PERRO|GATO|MASCOTA/.test(d) ? SX_TIPOS[2] : /BILLETE|DIVISA|MONEDA/.test(d) ? SX_TIPOS[1] : SX_TIPOS[0]);
+
+    async function sxReadFile(file) {
+      const out = { name: file.name, kind: '', data: null, error: '' };
+      try {
+        if (file.size > 30 * 1024 * 1024) throw new Error('archivo de más de 30 MB');
+        const buf = await file.arrayBuffer();
+        const head = new TextDecoder('latin1').decode(new Uint8Array(buf, 0, Math.min(buf.byteLength, 400)));
+        if (!/^\s*%PDF/.test(head)) throw new Error('no es PDF');
+        const pages = await avcfPdfPages(buf);
+        const lines = pages.flatMap(avcfLines);
+        const text = lines.join('\n');
+        if (text.replace(/\s+/g, '').length < 40) throw new Error('sin texto (¿convertido para VUCEM o escaneado?): ese se sube en el Paso 3');
+        const c = text.replace(/\s+/g, '').toUpperCase();
+        const aduE = (text.match(/ADUANA\s+E\/S:?\s*(\d{3})\b/i) || [])[1] || '';
+        if (c.includes('FORMATODEAVISOCONSOLIDADO')) {
+          const r = avcfParseRemesa(text);
+          if (r.error) throw new Error(r.error);
+          out.kind = 'remesa';
+          out.data = Object.assign(r, { aduE, guia: guiaNorm((text.match(/GUIA:\s*([\d\s-]{11,16})/i) || [])[1]) });
+        } else if (c.includes('FORMASIMPLIFICADADELPEDIMENTO')) {
+          const p = avcfParsePedimento(text);
+          if (p.error) throw new Error(p.error);
+          out.kind = 'pedimento';
+          out.data = Object.assign(p, {
+            aduE, cove: ((text.match(/\b(COVE[A-Z0-9]{9})\b/) || [])[1] || ''),
+            guia: guiaNorm((text.match(/GUIA\/ORDEN\s+EMBARQUE\)\/ID:?\s*([\d\s-]{11,16})/i) || [])[1]),
+          });
+        } else if (c.includes('AIRWAYBILL')) {
+          const m = text.match(/^\s*(\d{3})\s+[A-Z]{3}\s+(\d{4})\s*(\d{4})\b/m) || text.match(/\b(\d{3})-(\d{4})-?\s?(\d{4})\b/);
+          const nature = sxNature(pages[0] || []);
+          out.kind = 'guia';
+          out.data = { guia: m ? m[1] + m[2] + m[3] : '', nature, pais: sxCountry(lines) };
+          if (!out.data.guia) throw new Error('no encontré el número de guía');
+        } else throw new Error('no es remesa, pedimento ni guía aérea');
+      } catch (e) {
+        out.error = sxClean(e && e.message) || 'no se pudo leer';
+        if (DEBUG) console.warn('[AVCx] SERVEX archivo:', file.name, e);
+      }
+      return out;
+    }
+
+    // Junta lo leído: un pedimento (con sus remesas) y sus guías
+    function sxBuild(docs) {
+      const ok = docs.filter(d => !d.error), warn = [], err = [];
+      const peds = new Map(), guiasPed = new Set();
+      ok.filter(d => d.kind === 'remesa' || d.kind === 'pedimento').forEach(d => {
+        const p = d.data, k = p.pedimento;
+        if (!peds.has(k)) peds.set(k, { ped: k, patente: p.patente, aduana: p.aduana, aduE: p.aduE, tipoOp: p.tipoOp, rfc: p.rfc, normal: d.kind === 'pedimento', cove: '', rem: [] });
+        const e = peds.get(k);
+        if (d.kind === 'remesa') { if (p.cove && !e.rem.some(r => r.cove === p.cove)) e.rem.push({ n: p.consecutivo, cove: p.cove }); }
+        else { e.normal = true; e.cove = p.cove; }
+        ['aduE', 'rfc', 'tipoOp'].forEach(f => { if (!e[f] && p[f]) e[f] = p[f]; });
+        if (p.guia) guiasPed.add(p.guia);
+      });
+      peds.forEach(e => e.rem.sort((a, b) => (a.n || 0) - (b.n || 0)));
+      const list = [...peds.values()];
+      const uniq = f => [...new Set(list.map(e => e[f]).filter(Boolean))];
+      if (!list.length) err.push('falta la impresión de la remesa o el pedimento');
+      if (uniq('rfc').length > 1) err.push('hay pedimentos de RFC distintos');
+      if (uniq('aduE').length > 1) err.push('hay pedimentos de aduanas distintas');
+      if (uniq('tipoOp').length > 1) err.push('hay pedimentos de tipo de operación distinto');
+      list.forEach(e => { if (e.normal && e.rem.length) err.push(`el ${e.ped} viene como normal y como remesa`); });
+      const guias = ok.filter(d => d.kind === 'guia').map(d => d.data);
+      guias.forEach(g => { if (guiasPed.size && !guiasPed.has(g.guia)) warn.push(`la guía ${guiaFmt(g.guia)} no está en las observaciones del pedimento`); });
+      guiasPed.forEach(g => { if (!guias.some(x => x.guia === g)) warn.push(`falta el PDF de la guía ${guiaFmt(g)} (descripción y destino)`); });
+      const descs = [], natures = [];
+      guias.forEach(g => { if (!g.nature) return; natures.push(g.nature); const r = sxDescOf(g.nature); if (!descs.includes(r.d)) descs.push(r.d); if (!r.known) warn.push('descripción no reconocida: revísala (lo que corrijas se recuerda)'); });
+      const paises = [...new Set(guias.map(g => g.pais).filter(Boolean))];
+      if (guias.length && !paises.length) warn.push('no reconocí el país de destino de la guía: elígelo');
+      if (paises.length > 1) warn.push('las guías van a países distintos: elige el de procedencia');
+      return {
+        peds: list, rfc: uniq('rfc')[0] || '', aduE: uniq('aduE')[0] || '', aduana: (list[0] || {}).aduana || '', tipoOp: uniq('tipoOp')[0] || '',
+        patente: (list[0] || {}).patente || '', desc: descs.join(', '), natures, pais: paises.length === 1 ? paises[0] : '', warn: [...new Set(warn)], err,
+      };
+    }
+
+    /* ---------- panel ---------- */
+    const css = document.createElement('style');
+    css.textContent = `
+#sxv-btn{position:fixed;right:16px;bottom:16px;z-index:2147483000;background:#691c32;color:#fff;border:0;border-radius:6px;padding:8px 14px;font:600 13px/1 system-ui,sans-serif;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+#sxv-panel{position:fixed;right:16px;bottom:60px;z-index:2147483000;width:360px;max-height:calc(100vh - 80px);overflow:auto;background:#fff;color:#222;border:1px solid #bbb;border-radius:8px;box-shadow:0 4px 18px rgba(0,0,0,.22);font:13px/1.4 system-ui,sans-serif;padding:10px 12px}
+#sxv-panel *{box-sizing:border-box}
+#sxv-panel .sxv-hd{display:flex;justify-content:space-between;align-items:center;font-weight:600;margin-bottom:8px}
+#sxv-panel .sxv-x{background:none;border:0;font-size:18px;line-height:1;cursor:pointer;color:#666;padding:0 2px}
+#sxv-panel .sxv-drop{border:1.5px dashed #aaa;border-radius:6px;padding:10px;text-align:center;color:#555;cursor:pointer;margin-bottom:8px}
+#sxv-panel .sxv-drop.sxv-over{border-color:#691c32;background:#f8eef1}
+#sxv-panel label{display:block;font-size:11px;color:#666;margin:6px 0 2px;font-weight:400}
+#sxv-panel input,#sxv-panel select,#sxv-panel textarea{width:100%;font:13px system-ui,sans-serif;padding:4px 6px;border:1px solid #bbb;border-radius:4px;margin:0;height:auto;color:#222;background:#fff}
+#sxv-panel textarea{resize:vertical;font-size:12px}
+#sxv-panel .sxv-g3{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:6px}
+#sxv-panel .sxv-g2{display:grid;grid-template-columns:1fr 2fr;gap:6px}
+#sxv-panel .sxv-go{width:100%;margin:10px 0 6px;background:#691c32;color:#fff;border:0;border-radius:5px;padding:8px;font-weight:600;cursor:pointer}
+#sxv-panel .sxv-go[disabled]{opacity:.5;cursor:default}
+#sxv-panel .sxv-docs div,#sxv-panel .sxv-log div{font-size:12px;margin:1px 0}
+#sxv-panel .sxv-ok{color:#2e7d32}#sxv-panel .sxv-bad{color:#c62828}#sxv-panel .sxv-warn{color:#8a6200}#sxv-panel .sxv-mut{color:#888}
+#sxv-panel .sxv-ft{font-size:11px;color:#888;margin-top:6px}`;
+    document.head.appendChild(css);
+    const el = (tag, attrs, html) => { const e = document.createElement(tag); Object.entries(attrs || {}).forEach(([k, v]) => e.setAttribute(k, v)); if (html != null) e.innerHTML = html; return e; };
+    const btn = el('button', { id: 'sxv-btn', type: 'button', title: 'Llenar la página 1 con los PDF de la operación' }, 'SERVEX');
+    const pan = el('div', { id: 'sxv-panel' });
+    const tz = 'America/Cancun';
+    const man = tzParts(tz, Date.now() + 86400000);
+    const p2 = n => String(n).padStart(2, '0');
+    pan.innerHTML = `
+<div class="sxv-hd"><span>SERVEX · página 1</span><button type="button" class="sxv-x" title="Cerrar">×</button></div>
+<div class="sxv-drop" tabindex="0">Suelta aquí la remesa o el pedimento y las guías (PDF)<input type="file" accept=".pdf,application/pdf" multiple hidden></div>
+<div class="sxv-docs"></div>
+<div class="sxv-g3"><div><label>Fecha</label><input class="sxv-fecha" placeholder="DD/MM/AAAA" value="${p2(man.day)}/${p2(man.month)}/${man.year}"></div>
+<div><label>Inicio</label><input class="sxv-hi" value="${SX_HORA_INI}" maxlength="5"></div><div><label>Fin</label><input class="sxv-hf" value="${SX_HORA_FIN}" maxlength="5"></div></div>
+<label>Descripción genérica</label><input class="sxv-desc" maxlength="500">
+<label>País de procedencia (origen: México)</label><select class="sxv-pais"></select>
+<label>Justificación</label><select class="sxv-tipo">${SX_TIPOS.map(t => `<option>${t}</option>`).join('')}</select>
+<textarea class="sxv-just" rows="4" maxlength="1000" style="margin-top:4px"></textarea>
+<div class="sxv-g2"><div><label>Gafete</label><input class="sxv-gaf" maxlength="30"></div><div><label>Línea de captura · $${SX_MONTO}</label><input class="sxv-lin" maxlength="24" placeholder="Pega la línea"></div></div>
+<button type="button" class="sxv-go">Llenar página 1</button>
+<div class="sxv-log"></div>
+<div class="sxv-ft">Revisa y da Continuar tú. El script no firma ni envía.</div>`;
+    document.body.append(btn, pan);
+    const q = s => pan.querySelector(s);
+    const f = { fecha: q('.sxv-fecha'), hi: q('.sxv-hi'), hf: q('.sxv-hf'), desc: q('.sxv-desc'), pais: q('.sxv-pais'), tipo: q('.sxv-tipo'), just: q('.sxv-just'), gaf: q('.sxv-gaf'), lin: q('.sxv-lin') };
+    f.gaf.value = store.get('sx_gafete', SX_GAFETE_DEF);
+    // Países: la misma lista del portal (clave del catálogo de VUCEM)
+    const pSel = document.getElementById('serviciosDTO.mercanciaDTO.paisProcedencia');
+    f.pais.innerHTML = '<option value="">— elige —</option>' + (pSel ? [...pSel.options].filter(o => o.value && o.value !== '-1').map(o => `<option value="${esc(o.value)}">${esc(o.textContent)}</option>`).join('') : '');
+    const setOpen = o => { pan.style.display = o ? '' : 'none'; };
+    btn.onclick = () => setOpen(pan.style.display === 'none');
+    q('.sxv-x').onclick = () => setOpen(false);
+
+    let docs = [], model = null, descSug = '', justAuto = true;
+    const horaMas2 = h => { const m = /^(\d{1,2}):(\d{2})$/.exec(h.trim()); return m ? `${p2((+m[1] + 2) % 24)}:${m[2]}` : '—'; };
+    const refreshJust = () => { if (justAuto) f.just.value = SX_JUST(horaMas2(f.hf.value), f.tipo.value); };
+    f.hf.addEventListener('input', refreshJust);
+    f.tipo.addEventListener('change', () => { justAuto = true; refreshJust(); });
+    f.just.addEventListener('input', () => { justAuto = false; });
+    const saveGaf = () => store.set('sx_gafete', sxClean(f.gaf.value).toUpperCase());
+    f.gaf.addEventListener('change', saveGaf);
+    refreshJust();
+
+    function showDocs() {
+      const box = q('.sxv-docs');
+      if (!docs.length) { box.innerHTML = ''; return; }
+      const m = model, rows = [];
+      docs.filter(d => d.error).forEach(d => rows.push(`<div class="sxv-bad">✗ ${esc(d.name)}: ${esc(d.error)}</div>`));
+      if (m) {
+        m.peds.forEach(e => rows.push(`<div class="sxv-ok">✓ Ped. ${esc(e.ped)} · ${esc(e.tipoOp)} · ${esc(e.aduE)} · ${esc(e.rfc)}${e.rem.length ? ` · R${e.rem.map(r => r.n).join('-')} (${e.rem.length} COVE)` : ' · normal'}</div>`));
+        const g = docs.filter(d => !d.error && d.kind === 'guia').length;
+        if (g) rows.push(`<div class="sxv-ok">✓ ${g} guía${g > 1 ? 's' : ''}${m.pais ? ' · destino ' + esc(m.pais) : ''}</div>`);
+        m.err.forEach(w => rows.push(`<div class="sxv-bad">✗ ${esc(w)}</div>`));
+        m.warn.forEach(w => rows.push(`<div class="sxv-warn">! ${esc(w)}</div>`));
+      }
+      box.innerHTML = rows.join('');
+    }
+    async function addFiles(list) {
+      const files = [...list].filter(x => x && x.name);
+      if (!files.length) return;
+      q('.sxv-docs').innerHTML = '<div class="sxv-mut">Leyendo…</div>';
+      for (const file of files) {
+        const r = await sxReadFile(file);
+        docs = docs.filter(d => d.name !== r.name);
+        docs.push(r);
+      }
+      model = sxBuild(docs);
+      descSug = model.desc;
+      f.desc.value = model.desc;
+      if (model.pais) f.pais.value = model.pais;
+      f.tipo.value = sxTipoDe(model.desc.toUpperCase());
+      justAuto = true; refreshJust();
+      showDocs();
+    }
+    const drop = q('.sxv-drop'), inp = drop.querySelector('input');
+    drop.onclick = () => inp.click();
+    drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inp.click(); } };
+    inp.onchange = () => { addFiles(inp.files); inp.value = ''; };
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('sxv-over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('sxv-over'));
+    drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('sxv-over'); addFiles(e.dataTransfer.files); });
+
+    /* ---------- llenado con las funciones del portal ---------- */
+    const log = (cls, msg) => { const d = el('div', { class: cls }); d.textContent = msg; q('.sxv-log').appendChild(d); return d; };
+    // Cierra el aviso del portal (jQuery UI #dialog-mensaje o jquery.alerts) y regresa su texto
+    // (jqAlert crea un diálogo nuevo cada vez; se recorren todos los abiertos sin pasarle funciones a la página)
+    function openDialogs() {
+      const $ = PJ(), out = [];
+      try {
+        const a = $('.ui-dialog-content').toArray();
+        for (let i = 0; i < a.length; i++) { try { if ($(a[i]).dialog('isOpen')) out.push(a[i]); } catch (_) { /* sin inicializar */ } }
+      } catch (_) { /* ignore */ }
+      return out;
+    }
+    function takeMsg() {
+      const $ = PJ(), t = [];
+      openDialogs().forEach(n => {
+        const s = sxClean(n.id === 'dialog-mensaje' ? $('#mensaje').text() : n.textContent);
+        if (s && !t.includes(s)) t.push(s);
+        try { $(n).dialog('close'); } catch (_) { /* ignore */ }
+      });
+      return t.join(' · ');
+    }
+    const pageCall = (name, ...args) => { const fn = PW[name]; if (typeof fn !== 'function') throw new Error(`el portal no tiene ${name}()`); return fn(...args); };
+    const setVal = (sel, v, ev) => { const $ = PJ(), e = $(sel); if (!e.length) throw new Error(`no encontré ${sel}`); e.val(v); (ev || []).forEach(x => e.trigger(x)); return e; };
+    const gridIds = id => { try { const a = PJ()('#' + id).jqGrid('getDataIDs'), r = []; for (let i = 0; i < a.length; i++) r.push(String(a[i])); return r; } catch (_) { return []; } };
+    const TIPO_OP = { EXP: 'TIOAD.EX', IMP: 'TIOAD.IM', TRA: 'TIOAD.TR' };
+    const fechaOk = s => /^\d{2}\/\d{2}\/\d{4}$/.test(s);
+    const horaOk = s => /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
+
+    async function step(label, fn) {
+      const d = log('sxv-mut', '… ' + label);
+      await sleep(30); // deja pintar el panel (las peticiones del portal son síncronas)
+      try {
+        const r = await fn();
+        const msg = takeMsg();
+        const warn = r && r.warn;
+        d.className = warn ? 'sxv-warn' : 'sxv-ok';
+        d.textContent = (warn ? '! ' : '✓ ') + label + (r && r.note ? ' · ' + r.note : '') + (warn ? ' · ' + warn : '') + (msg && !(r && r.hideMsg) ? ' — ' + msg : '');
+        return true;
+      } catch (e) {
+        const msg = takeMsg();
+        d.className = 'sxv-bad';
+        d.textContent = '✗ ' + label + ': ' + sxClean(e && e.message) + (msg ? ' — ' + msg : '');
+        if (DEBUG) console.warn('[AVCx] SERVEX paso:', label, e);
+        return false;
+      }
+    }
+
+    async function fill() {
+      q('.sxv-log').innerHTML = '';
+      const m = model;
+      if (!m || !m.peds.length) { log('sxv-bad', '✗ Primero suelta la remesa o el pedimento'); return; }
+      if (m.err.length) { log('sxv-bad', '✗ ' + m.err.join('; ')); return; }
+      const fecha = f.fecha.value.trim(), hi = f.hi.value.trim(), hf = f.hf.value.trim();
+      if (!fechaOk(fecha) || !horaOk(hi) || !horaOk(hf)) { log('sxv-bad', '✗ Revisa la fecha (DD/MM/AAAA) y las horas (HH:MM)'); return; }
+      if (!PJ() || typeof PJ().fn.jqGrid !== 'function') { log('sxv-bad', '✗ La página de VUCEM aún no termina de cargar'); return; }
+      const goBtn = q('.sxv-go'); goBtn.disabled = true;
+      // aprende la descripción corregida a mano (por el texto de la guía)
+      const desc = sxClean(f.desc.value).toUpperCase();
+      if (desc && desc !== descSug && m.natures.length === 1) { learned[descKey(m.natures[0])] = desc; const ks = Object.keys(learned); if (ks.length > 200) delete learned[ks[0]]; store.set('sx_desc', JSON.stringify(learned)); }
+      const $ = PJ();
+      try { $('#tabs').tabs('option', 'active', 1); } catch (_) { /* ignore */ }
+      const patPage = sxClean($('#patente').val());
+      if (patPage && m.patente && patPage !== m.patente) log('sxv-warn', `! La patente del pedimento (${m.patente}) no es la de la sesión (${patPage})`);
+
+      await step('Tipo de solicitud: Individual', () => { if ($('#selectTipoServicio').val() !== '1') setVal('#selectTipoServicio', '1', ['change']); });
+      await step('RFC ' + m.rfc, () => {
+        setVal('#rfc', m.rfc, ['keyup', 'blur']);
+        const n = sxClean($('#nombre').val());
+        if (!n) throw new Error('VUCEM no regresó el nombre');
+        return { note: n };
+      });
+      await step('Aduana ' + m.aduE, () => {
+        if (!$('#aduanaDespacho option[value="' + m.aduE + '"]').length) throw new Error('tu patente no tiene esa aduana en VUCEM');
+        if ($('#aduanaDespacho').val() !== m.aduE) setVal('#aduanaDespacho', m.aduE, ['change']);
+      });
+      await step('Tipo de operación ' + m.tipoOp, () => {
+        const v = TIPO_OP[m.tipoOp];
+        if (!v) throw new Error('tipo de operación desconocido');
+        if ($('#selectTipoOperacion').val() !== v) {
+          if (gridIds('gridPedimento').length) throw new Error('la tabla de pedimentos ya tiene datos: cámbialo a mano');
+          setVal('#selectTipoOperacion', v, ['change']);
+        }
+      });
+      await step(`Fecha ${fecha} ${hi} a ${hf}`, () => {
+        // horas primero (sin eventos) y la fecha final antes que la inicial: el portal borra las fechas si al validar la final queda antes que la inicial
+        setVal('#horaInicial', hi);
+        setVal('#horaFinal', hf);
+        setVal('#fechaFinal', fecha, ['change']);
+        setVal('#fechaInicio', fecha, ['change']);
+        setVal('#horaInicial', hi, ['blur']);
+        setVal('#horaFinal', hf, ['blur']);
+        if ($('#fechaInicio').val() !== fecha || $('#fechaFinal').val() !== fecha || $('#horaInicial').val() !== hi || $('#horaFinal').val() !== hf) throw new Error('VUCEM no aceptó la fecha u hora');
+      });
+      for (const e of m.peds) {
+        const val = e.rem.length ? e.rem.map(r => r.cove).join(', ') : e.ped;
+        await step(`Pedimento ${e.ped}` + (e.rem.length ? ` · ${e.rem.length} COVE` : ''), async () => {
+          const before = gridIds('gridPedimento');
+          const dup = before.find(id => sxClean($('#gridPedimento').jqGrid('getRowData', id).pedimento) === e.ped);
+          let id = dup;
+          if (!dup) {
+            setVal('#numeroPedimento', e.ped);
+            pageCall('validaPedimento');
+            id = gridIds('gridPedimento').find(x => !before.includes(x));
+            if (!id) throw new Error('VUCEM no lo agregó');
+          }
+          const msg = takeMsg();
+          const row = $('#gridPedimento').jqGrid('getRowData', id);
+          const tipo = row.tipoPedimentoEvaluacion;
+          const isRem = tipo === 'ESTPE.RC' || (!tipo && e.rem.length);
+          if (isRem !== !!e.rem.length) return { warn: `VUCEM lo marca como ${sxClean(row.tipoDePedimento) || 'otro tipo'}: revisa la celda`, note: msg };
+          $('#gridPedimento').jqGrid('setRowData', id, toPage(isRem ? { cove: val } : { numeros: val }));
+          return { note: (dup ? 'ya estaba · ' : '') + (isRem ? 'COVE ' + val : 'Número(s) ' + val) + (msg ? ' — ' + msg : ''), hideMsg: true };
+        });
+      }
+      await step('Países: México → ' + (f.pais.value || '?'), () => {
+        setVal('#serviciosDTO\\.mercanciaDTO\\.paisOrigen', 'MEX', ['change']);
+        if (!f.pais.value) return { warn: 'elige el país de procedencia' };
+        setVal('#serviciosDTO\\.mercanciaDTO\\.paisProcedencia', f.pais.value, ['change']);
+      });
+      await step('Descripción y justificación', () => {
+        if (!desc) return { warn: 'descripción vacía' };
+        setVal('#descripcionGenerica', desc.slice(0, 500), ['keyup']);
+        setVal('#justificacion', sxClean(f.just.value).slice(0, 1000), ['keyup']);
+        return { note: desc };
+      });
+      const gaf = sxClean(f.gaf.value).toUpperCase();
+      saveGaf();
+      if (!gaf) log('sxv-warn', '! Sin gafete: escríbelo en el panel (se guarda)');
+      if (gaf) await step('Gafete ' + gaf, () => {
+        const exists = gridIds('gridPersonas').some(id => sxClean($('#gridPersonas').jqGrid('getRowData', id).gafete) === gaf);
+        if (exists) return { note: 'ya estaba' };
+        setVal('#gafeteRespoDespacho', gaf);
+        pageCall('buscarGafete');
+        if (!sxClean($('#nombreRespoDespacho').val())) throw new Error('VUCEM no encontró el gafete');
+        const who = [$('#nombreRespoDespacho').val(), $('#paternoRespoDespacho').val(), $('#maternoRespoDespacho').val()].map(sxClean).join(' ');
+        const before = gridIds('gridPersonas').length;
+        pageCall('addPersona');
+        if (gridIds('gridPersonas').length <= before) throw new Error('no se agregó');
+        return { note: who, hideMsg: true };
+      });
+      const lin = f.lin.value.replace(/\s+/g, '').toUpperCase();
+      if (lin) await step('Pago ' + lin, async () => {
+        const exists = gridIds('gridPagoSea').some(id => sxClean($('#gridPagoSea').jqGrid('getRowData', id).lineaCaptura) === lin);
+        if (exists) return { note: 'ya estaba' };
+        const before = gridIds('gridPagoSea').length;
+        setVal('#lineaCapturaModal', lin);
+        setVal('#montoModal', SX_MONTO);
+        pageCall('agregarPagoSea'); // asíncrona: se espera la fila o el aviso
+        for (let i = 0; i < 100; i++) {
+          await sleep(150);
+          const added = gridIds('gridPagoSea').length > before;
+          if (added) return { note: sxClean($('#gridPagoSea').jqGrid('getRowData', gridIds('gridPagoSea').pop()).monto) ? '$' + sxClean($('#gridPagoSea').jqGrid('getRowData', gridIds('gridPagoSea').pop()).monto) : '' };
+          if (openDialogs().length) { await sleep(150); if (gridIds('gridPagoSea').length > before) return {}; throw new Error('VUCEM no la aceptó'); }
+        }
+        throw new Error('VUCEM no respondió');
+      });
+      else log('sxv-warn', '! Sin línea de captura: agrégala en Pagos');
+      log('sxv-mut', 'Listo. Revisa la página y da Continuar.');
+      goBtn.disabled = false;
+    }
+    q('.sxv-go').onclick = () => { fill().catch(e => { log('sxv-bad', '✗ ' + sxClean(e && e.message)); q('.sxv-go').disabled = false; }); };
+  }
+
+  // 0.194: en VUCEM solo corre el módulo SERVEX; nada de AVC (temas, listado, sondeo, servicio web).
+  if (location.hostname === 'www.ventanillaunica.gob.mx') { servexMain(); return; }
+
   // 0.167-0.168: tema visual (botón Temas del menú): 'clasico' (por defecto, sin cambios), 'pasaporte' o 'portal' (Portal original). Se guarda por navegador (store 'theme'); themeView = el que se ve
   let themeSaved = store.get('theme', 'clasico');
   if (!['clasico', 'pasaporte', 'portal'].includes(themeSaved)) themeSaved = 'clasico';
@@ -5349,23 +5812,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   // Por ahora: pedimentos normales y remesas (sin tránsitos ni otros tipos de documento).
 
   const AVCF_UUID_RE = /[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/gi;
-  const avcfDash = s => String(s || '').replace(/[‐-―−﹣－]/g, '-');
   const avcfNum = s => { const n = parseFloat(String(s == null ? '' : s).replace(/[$,\s]/g, '')); return isFinite(n) ? n : NaN; };
   const avcfFmt = n => (isFinite(n) ? String(Math.round(n * 1000) / 1000) : '');
 
-  // pdf.js (Apache 2.0, Mozilla) va incrustado al final del script; se evalúa solo la primera vez que se lee un PDF.
-  // Corre en este mismo hilo ("fake worker"): no carga nada de internet ni crea workers con otros archivos.
-  const getPdfjs = (() => {
-    let lib = null;
-    return () => {
-      if (!lib) {
-        const [w, p] = pdfjsBundle();
-        globalThis.pdfjsWorker = w; // pdf.js usa este manejador en el hilo principal en lugar de un worker
-        lib = p;
-      }
-      return lib;
-    };
-  })();
 
   async function avcfPdfPages(buf) {
     const lib = getPdfjs();
@@ -5415,8 +5864,6 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const m = text.match(/NUM\.\s*PEDIMENTO:?\s*(\d{2})\s+(\d{2})\s+(\d{4})\s+(\d{7})/i);
     return m ? { anio: m[1], aduana: m[2], patente: m[3], pedimento: m[4] } : null;
   }
-  const avcfTipoOp = text => { const m = text.match(/T\.\s*OPER:?\s*(IMP|EXP|TRA)\b/i); return m ? m[1].toUpperCase() : ''; };
-  const avcfClave = text => ((text.match(/CVE\.\s*PEDIMENTO:?\s*([A-Z0-9]{2})\b/i) || [])[1] || '').toUpperCase();
 
   function avcfParsePedimento(text) {
     const n = avcfPedNum(text);
