@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.191
+// @version      0.192
 // @description  AVC MAKEOVER: renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -970,7 +970,9 @@
 
     // Razón social desde el catálogo local (o el objeto CLIENTES) por RFC
     if (!rs.length) {
-      rs = uniq(rfcs.map(r => CAT.r[r.replace(/\s/g, '').toUpperCase()] || CLIENTES[r.replace(/\s/g, '').toUpperCase()]));
+      const hit = rfcs.map(r => CAT.r[r.replace(/\s/g, '').toUpperCase()] || CLIENTES[r.replace(/\s/g, '').toUpperCase()]);
+      // 0.192: si el catálogo no tiene TODOS los RFC, se deja vacío para que fillRazonSocialAsync resuelva cada uno (catálogo y luego CLAA)
+      rs = hit.every(Boolean) ? uniq(hit) : [];
       if (rs.length) src.rs = 'catálogo local';
     }
 
@@ -1210,8 +1212,11 @@
     // mientras CLAA contesta (puede tardar ~40 s) la celda muestra "…" en vez de un "—" que parece "sin dato"
     const td0 = row.querySelector('td[data-avcx-col="rs"]');
     if (td0 && td0.textContent === '—') { td0.textContent = '…'; td0.title = 'Consultando a CLAA (puede tardar hasta un minuto)…'; }
+    const canWrite = td => td && (td.textContent === '—' || td.textContent === '…' || td.hasAttribute('data-avcx-rsmiss')); // 0.192: una celda parcial se puede completar
     return Promise.allSettled(rfcs.map(claaRS)).then(res => {
-      const names = uniq(res.filter(r => r.status === 'fulfilled').map(r => r.value));
+      const names = uniq(res.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value));
+      // 0.192: RFC sin nombre (fallo o respuesta vacía) con su motivo; se muestran con "?" junto a los que sí llegaron
+      const miss = rfcs.map((r, i) => res[i].status === 'fulfilled' && res[i].value ? null : { r, why: res[i].status === 'rejected' ? clean(res[i].reason && res[i].reason.message) : 'sin nombre' }).filter(Boolean);
       const bad = res.filter(r => r.status === 'rejected');
       const why = uniq(bad.map(r => clean(r.reason && r.reason.message)));
       if (why.length && DEBUG) console.warn('[AVCx] CLAA:', rfcs.join(', '), '→', why.join('; '));
@@ -1224,9 +1229,10 @@
         if (td && why.length && td.textContent === '—') td.title = 'CLAA: ' + why.join('; ');
         return;
       }
-      if (td && (td.textContent === '—' || td.textContent === '…')) {
+      if (canWrite(td)) {
         td.textContent = shortRS(names.join(' | '));
-        td.title = names.join(' | ') + '\nFuente: rfc.claa.org.mx';
+        if (miss.length) td.setAttribute('data-avcx-rsmiss', miss.map(m => '? ' + m.r).join(' | ')); else td.removeAttribute('data-avcx-rsmiss');
+        td.title = names.join(' | ') + (miss.length ? '\n' + miss.map(m => '? ' + m.r + ': sin nombre (CLAA: ' + m.why + ')').join('\n') + '\nAgrégalos en Catálogos → RFC' : '') + '\nFuente: rfc.claa.org.mx / catálogo';
       }
     });
   }
@@ -1525,7 +1531,7 @@
       const tdRs = row.querySelector('td[data-avcx-col="rs"]');
       if (rfc && tdRs) {
         if (tdRs.textContent === '⚠') { tdRs.textContent = '—'; tdRs.title = ''; } // el RFC sí llegó por el servicio web
-        if (tdRs.textContent === '—' || tdRs.textContent === '…') fillRazonSocialAsync(row, { rfc, rs: '' });
+        if (tdRs.textContent === '—' || tdRs.textContent === '…' || tdRs.hasAttribute('data-avcx-rsmiss')) fillRazonSocialAsync(row, { rfc, rs: '' });
       }
       if (rfc) rowWS.set(row, { rfc });
       return { ok: !!(d.ped && rfc), partial: !!(d.ped || rfc) && !(d.ped && rfc), msg: '' };
@@ -1639,6 +1645,7 @@
       const td = row.querySelector(`td[data-avcx-col="${c.id}"]`);
       if (!td) return;
       td.textContent = err ? '⚠' : ((c.id === 'rs' ? shortRS(f[c.id]) : f[c.id]) || '—');
+      if (c.id === 'rs') td.removeAttribute('data-avcx-rsmiss');
       const fuente = f && f.src && f.src[c.id] ? 'Fuente: ' + f.src[c.id] : '';
       // razón social: el nombre completo (la celda lo recorta) y debajo la fuente
       td.title = err || (c.id === 'rs' && f[c.id] ? f[c.id] + '\n' + fuente : fuente);
@@ -1660,7 +1667,7 @@
       } else {
         // fila llenada solo con el servicio web: se rehace la razón social con el catálogo actual (lo resuelve claaRS: primero el catálogo, luego CLAA)
         const w = rowWS.get(row), td = row.querySelector('td[data-avcx-col="rs"]');
-        if (w && td) { td.textContent = '…'; td.title = ''; fillRazonSocialAsync(row, { rfc: w.rfc, rs: '' }); }
+        if (w && td) { td.textContent = '…'; td.title = ''; td.removeAttribute('data-avcx-rsmiss'); fillRazonSocialAsync(row, { rfc: w.rfc, rs: '' }); }
       }
     });
   }
@@ -1778,7 +1785,7 @@
 
   // Folio: "AVC530101202600000000123" -> se ve solo "00000000123" (los 11 dígitos del consecutivo, con sus ceros).
   // El folio completo se conserva en un <span> oculto dentro de la misma celda, así que el resto del script, la búsqueda y el
-  // ordenamiento de la tabla lo siguen viendo igual. La celda muestra el folio completo al pasar el mouse y un clic lo copia completo.
+  // ordenamiento de la tabla lo siguen viendo igual. La celda muestra el folio completo al pasar el mouse (0.192: el clic ya no lo copia).
   // Devuelve true si cambió la fila. Es idempotente: una fila ya procesada (tiene el span oculto) se salta.
   function fmtFolio(row) {
     if (!FOLIO_SHORT_ON || row.querySelector('.avcx-fol-full')) return false;
@@ -1799,19 +1806,14 @@
       const shortEl = document.createElement('span');
       shortEl.className = 'avcx-fol-short';
       shortEl.textContent = m[1];
-      shortEl.addEventListener('click', async e => {
-        e.preventDefault();
-        e.stopPropagation();
-        const ok = await copyText(folio);
-        toast(ok ? `Folio copiado: ${folio}` : 'No pude copiar al portapapeles; copia el folio a mano: ' + folio);
-      });
+      // 0.192: ya no copia el folio al hacer clic (en celular el toque abre la tarjeta como el resto)
       const after = node.nodeValue.slice(m.index + folio.length);
       node.nodeValue = node.nodeValue.slice(0, m.index);
       node.after(fullEl, shortEl, document.createTextNode(after));
       if (!full) full = folio;
     });
     if (!full) return false;
-    cell.title = full + '\nClic: copiar el folio completo';
+    cell.title = full;
     cell.classList.add('avcx-folcell'); // 0.136: tarjetas en celular
     return true;
   }
@@ -3734,8 +3736,7 @@
     th[data-avcx-short]>*{display:none!important}
     th[data-avcx-short]::after{content:attr(data-avcx-short);font-size:var(--avcx-thfs,1rem)}
     .avcx-fol-full{display:none!important}
-    .avcx-fol-short{cursor:pointer}
-    .avcx-fol-short:hover{text-decoration:underline dotted}
+    .avcx-table td[data-avcx-rsmiss]::after{content:" | " attr(data-avcx-rsmiss);color:#5E7268;font-weight:400}
     #avcx-deltoggle,#avcx-exptoggle,#avcx-splittoggle,#avcx-notiftoggle,#avcx-debugtoggle{display:flex;align-items:center;gap:6px;margin:8px 0 4px;font:13px system-ui,sans-serif;cursor:pointer;user-select:none}
     #avcx-deltoggle input,#avcx-exptoggle input,#avcx-splittoggle input,#avcx-notiftoggle input,#avcx-debugtoggle input{margin:0;cursor:pointer}
     .avcx-filtbar{display:block;width:100%;text-align:left;margin:0 0 8px;padding:6px 10px;border:1px solid #bbb;border-radius:4px;
@@ -4054,7 +4055,7 @@
     document.addEventListener('click', e => {
       const tg = e.target;
       if (!tg || !tg.closest) return;
-      if (tg.closest('a,button,input,select,textarea,label,#avcx-nav,#avcx-panel,#avcx-tip,.avcx-fol-short,.avcx-filtbar')) return;
+      if (tg.closest('a,button,input,select,textarea,label,#avcx-nav,#avcx-panel,#avcx-tip,.avcx-filtbar')) return;
       const row = tg.closest('tr[data-avcx]');
       if (!row) return;
       lastRow = row; cur = row;
