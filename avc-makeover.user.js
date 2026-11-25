@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.206
+// @version      0.209
 // @description  AVC MAKEOVER (y llenado de la página 1 de SERVEX en VUCEM): renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -454,7 +454,8 @@
       const cs = new CompressionStream('deflate'); // zlib = FlateDecode
       return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(cs)).arrayBuffer());
     }
-    function sxPdfFromImages(imgs) { // imgs: [{w, h, bpc, data (Flate)}] → Uint8Array PDF 1.3 con la estructura de Ghostscript
+    // 0.208: igual que Ghostscript también en /Info (CreationDate), /ID del trailer, contenido de página comprimido y encabezado binario
+    async function sxPdfFromImages(imgs) { // imgs: [{w, h, bpc, data (Flate)}] → Uint8Array PDF 1.3 con la estructura de Ghostscript
       const enc = new TextEncoder(), parts = [], offs = [];
       let len = 0;
       const put = x => { const b = typeof x === 'string' ? enc.encode(x) : x; parts.push(b); len += b.length; };
@@ -464,23 +465,28 @@
         if (stream) { put('stream\n'); put(stream); put('\nendstream\n'); }
         put('endobj\n');
       };
-      put('%PDF-1.3\n%\xC7\xEC\x8F\xA2\n');
+      put('%PDF-1.3\n'); put(new Uint8Array([0x25, 0xC7, 0xEC, 0x8F, 0xA2, 0x0A]));
+      const now = new Date(), off = -now.getTimezoneOffset(), p2d = v => String(v).padStart(2, '0');
+      const cdate = `D:${now.getFullYear()}${p2d(now.getMonth() + 1)}${p2d(now.getDate())}${p2d(now.getHours())}${p2d(now.getMinutes())}${p2d(now.getSeconds())}${off >= 0 ? '+' : '-'}${p2d(Math.floor(Math.abs(off) / 60))}'${p2d(Math.abs(off) % 60)}'`;
+      const rnd = new Uint8Array(16); crypto.getRandomValues(rnd);
+      const fid = [...rnd].map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+      const conts = await Promise.all(imgs.map(im => sxDeflate(enc.encode(`q ${(im.w * 72 / SX_DPI).toFixed(6)} 0 0 ${(im.h * 72 / SX_DPI).toFixed(6)} 0 0 cm /Im1 Do Q\n`))));
       const n = imgs.length, kids = imgs.map((_, i) => `${6 + i * 3} 0 R`).join(' ');
       obj(1, '<<\n/Pages 2 0 R\n/Type /Catalog\n/Info 3 0 R\n>>');
       obj(2, `<<\n/Count ${n}\n/Kids [${kids} ]\n/Type /Pages\n>>`);
-      obj(3, '<<\n/Producer(AVC MAKEOVER)\n>>');
+      obj(3, `<<\n/Producer(AVC MAKEOVER)\n/CreationDate(${cdate})\n>>`);
       imgs.forEach((im, i) => {
         const io = 4 + i * 3, co = io + 1, po = io + 2; // imagen, contenido, página (kids: 6, 9, 12…)
         const pw = (im.w * 72 / SX_DPI).toFixed(6), ph = (im.h * 72 / SX_DPI).toFixed(6);
         obj(io, `<<\n/Length ${im.data.length}\n/Subtype /Image\n/Width ${im.w}\n/Height ${im.h}\n/ColorSpace /DeviceGray\n/BitsPerComponent ${im.bpc}\n/Filter /FlateDecode\n>>`, im.data);
-        const c = enc.encode(`q ${pw} 0 0 ${ph} 0 0 cm /Im1 Do Q\n`);
-        obj(co, `<<\n/Length ${c.length}\n>>`, c);
+        const c = conts[i];
+        obj(co, `<<\n/Filter/FlateDecode/Length ${c.length}\n>>`, c);
         obj(po, `<<\n/Contents ${co} 0 R\n/Type /Page\n/Parent 2 0 R\n/MediaBox [0 0 ${pw} ${ph}]\n/Resources <<\n/XObject <<\n/Im1 ${io} 0 R\n>>\n>>\n>>`);
       });
       const size = 3 + n * 3 + 1, xref = len;
       let x = `xref\n0 ${size}\n0000000000 65535 f \n`;
       for (let i = 1; i < size; i++) x += `${String(offs[i] || 0).padStart(10, '0')} 00000 n \n`;
-      put(x + `trailer\n<<\n/Size ${size}\n/Root 1 0 R\n>>\nstartxref\n${xref}\n%%EOF\n`);
+      put(x + `trailer\n<<\n/Size ${size}\n/Root 1 0 R\n/ID [<${fid}><${fid}>]\n>>\nstartxref\n${xref}\n%%EOF\n`);
       const out = new Uint8Array(len);
       let p = 0; parts.forEach(b => { out.set(b, p); p += b.length; });
       return out;
@@ -508,11 +514,11 @@
           }
         } finally { try { doc.destroy(); } catch (_) { /* ignore */ } }
       } finally { restore(); }
-      let pdf = sxPdfFromImages(await Promise.all(grays.map(async p => ({ w: p.w, h: p.h, bpc: 8, data: await sxDeflate(p.g) }))));
+      let pdf = await sxPdfFromImages(await Promise.all(grays.map(async p => ({ w: p.w, h: p.h, bpc: 8, data: await sxDeflate(p.g) }))));
       let bn = false;
       if (pdf.length > SX_MAXBYTES) { // respaldo en blanco y negro (1 bit; 1 = blanco)
         bn = true;
-        pdf = sxPdfFromImages(await Promise.all(grays.map(async p => {
+        pdf = await sxPdfFromImages(await Promise.all(grays.map(async p => {
           const rb = Math.ceil(p.w / 8), b = new Uint8Array(rb * p.h);
           for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) if (p.g[y * p.w + x] >= 128) b[y * rb + (x >> 3)] |= 0x80 >> (x & 7);
           return { w: p.w, h: p.h, bpc: 1, data: await sxDeflate(b) };
@@ -520,7 +526,7 @@
       }
       return { bytes: pdf, pages: grays.length, bn, big: pdf.length > SX_MAXBYTES };
     }
-    // Nombres cortos (pedido del usuario): pedimento_R(n) o pedimento; guia_ppp-nnnnnnnn; CFDI_folio interno (no el UUID)
+    // Nombres cortos (pedido del usuario): pedimento_R(n) o pedimento; Guia_ppp-nnnnnnnn; CFDI_folio interno (no el UUID)
     const sxSafe = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');
     // Folio interno: "Folio: A-123" en el mismo renglón o, si la etiqueta va sola ("Serie - Folio"), el valor justo debajo
     const SX_FOLIO_VAL = /^[A-Z]{0,5}\s?-?\s?\d{1,12}$/i;
@@ -546,7 +552,7 @@
       const names = new Set(), uniq = n => { let x = n, i = 2; while (names.has(x)) x = n.replace(/\.pdf$/, `_${i++}.pdf`); names.add(x); return x; };
       return [
         ...cf.map((d, i) => ({ d, kind: 'cfdi', name: uniq(`CFDI_${d.data.folio || i + 1}.pdf`) })),
-        ...gu.map((d, i) => ({ d, kind: 'guia', name: uniq(`guia_${d.data.guia ? d.data.guia.slice(0, 3) + '-' + d.data.guia.slice(3) : i + 1}.pdf`) })),
+        ...gu.map((d, i) => ({ d, kind: 'guia', name: uniq(`Guia_${d.data.guia ? d.data.guia.slice(0, 3) + '-' + d.data.guia.slice(3) : i + 1}.pdf`) })),
         ...pe.map(d => ({ d, kind: 'ped', name: uniq(`${d.data.pedimento}${d.kind === 'remesa' && d.data.consecutivo ? '_R' + d.data.consecutivo : ''}.pdf`) })),
       ];
     }
@@ -582,6 +588,11 @@
     }
     async function sxDropSet() { store.set('sx_pend', ''); await sxDbClear(); }
 
+    // 0.207: tras Preparar/Poner el portal deja la página arriba: se baja al botón que sigue (sin hacer clic)
+    function sxShowBtn(b) {
+      if (!b) return;
+      requestAnimationFrame(() => { try { b.scrollIntoView({ block: 'center', behavior: 'smooth' }); b.focus({ preventScroll: true }); } catch (_) { /* ignore */ } });
+    }
     // Páginas 2 y 3: panel pequeño con el mismo estilo
     function sxOtherPage(pg) {
       const pend = sxPend();
@@ -631,6 +642,7 @@
             });
             sel.val('-1');
             log('sxv-mut', 'Listo. Revisa la tabla y da Continuar.');
+            sxShowBtn([...document.querySelectorAll('input[type="button"],button')].find(b => /^\s*Continuar\s*$/i.test(b.value || b.textContent)));
           } catch (e) { log('sxv-bad', '✗ ' + sxClean(e && e.message)); }
         };
         return;
@@ -642,11 +654,35 @@
       let files = [];
       sxDbAll().then(rows => {
         files = (rows || []).sort((a, b) => a.ord - b.ord);
-        body.innerHTML = files.length ? `<div class="sxv-mut" style="line-height:1.6">${files.map((f, i) => `${i + 1} ${esc(f.name)}`).join('<br>')}</div>` : '<div class="sxv-bad">✗ No encontré los archivos convertidos: suéltalos otra vez en la página 1.</div>';
-        if (!files.length) go.style.display = 'none';
+        return Promise.all(files.map(async f => { f.bytes = new Uint8Array(await f.blob.arrayBuffer()); }));
+      }).then(() => {
+        // 0.208: cada nombre descarga el convertido (para adjuntarlo a mano o revisarlo)
+        body.innerHTML = files.length ? `<div class="sxv-mut" style="line-height:1.6">${files.map((f, i) => `${i + 1} <a href="#" class="sxv-dl" data-i="${i}" title="Descargar">${esc(f.name)}</a>`).join('<br>')}</div><button type="button" class="sxv-del" style="margin-top:6px;background:none;border:0;color:#c62828;cursor:pointer;padding:0;font-size:12px">Borrar guardados</button>` : '<div class="sxv-bad">✗ No encontré los archivos convertidos: suéltalos otra vez en la página 1.</div>';
+        if (!files.length) { go.style.display = 'none'; return; }
+        body.querySelectorAll('.sxv-dl').forEach(a => { a.onclick = e => {
+          e.preventDefault();
+          const f = files[+a.dataset.i], u = URL.createObjectURL(f.blob), t = el('a', { href: u, download: f.name });
+          document.body.appendChild(t); t.click(); t.remove(); setTimeout(() => URL.revokeObjectURL(u), 10000);
+        }; });
+        body.querySelector('.sxv-del').onclick = async () => { await sxDropSet(); files = []; body.innerHTML = '<div class="sxv-mut">Archivos guardados borrados.</div>'; go.style.display = 'none'; };
       }).catch(() => { body.innerHTML = '<div class="sxv-bad">✗ No pude leer los archivos guardados.</div>'; go.style.display = 'none'; });
       const kindOf = s => (/valor de la mercanc/i.test(s) ? 'cfdi' : /medio de transporte|gu[ií]a/i.test(s) ? 'guia' : /pedimento/i.test(s) ? 'ped' : '');
       const fileInputs = () => [...document.querySelectorAll('#uploadDocumentos input[type="file"]')];
+      // 0.209: el archivo se arma con los constructores de la PÁGINA (como al elegirlo con Browse); en Firefox, un File creado en el
+      // espacio del script se ve en el campo pero el portal no lo procesa. Respaldo: la forma anterior.
+      function sxPageFiles(f) {
+        try {
+          const u8 = new PW.Uint8Array(f.bytes.length); u8.set(f.bytes);
+          const parts = new PW.Array(); parts.push(new PW.Blob([u8]));
+          const file = new PW.File(parts, f.name, PW.JSON.parse('{"type":"application/pdf"}'));
+          const dt = new PW.DataTransfer(); dt.items.add(file);
+          return dt.files;
+        } catch (e) {
+          if (DEBUG) console.warn('[AVCx] SERVEX archivo en la página falló; uso el del script', e);
+          const dt = new DataTransfer(); dt.items.add(new File([f.bytes], f.name, { type: 'application/pdf' }));
+          return dt.files;
+        }
+      }
       go.onclick = async () => {
         q('.sxv-log').innerHTML = '';
         go.disabled = true;
@@ -671,16 +707,18 @@
             const use = f || (!k ? rest.find(x => !x.used) : null);
             if (!use) return;
             use.used = true;
-            const dt = new DataTransfer();
-            dt.items.add(new File([use.blob], use.name, { type: 'application/pdf' }));
-            inp.files = dt.files;
+            inp.files = sxPageFiles(use);
             inp.dispatchEvent(new Event('change', { bubbles: true }));
             put++;
           });
           const ok = put === files.length && put === ins.length;
           log(ok ? 'sxv-ok' : 'sxv-warn', `${ok ? '✓' : '!'} ${put} de ${files.length} archivos puestos (${ins.length} renglones en VUCEM)`);
-          if (ok) { await sxDropSet(); log('sxv-mut', 'Listo. Revisa y da Adjuntar. Los archivos guardados ya se borraron.'); }
+          // 0.208: no se borran aquí (por si VUCEM no los procesa y hay que reintentar): Borrar, otra conversión o 24 h
+          if (ok) log('sxv-mut', 'Listo. Revisa y da Adjuntar.');
           else log('sxv-warn', '! Revisa los renglones: no cuadran con los archivos. Siguen guardados hasta 24 h.');
+          // el portal sube la página al abrir el formulario de carga: se baja al botón Adjuntar
+          const adj = [...document.querySelectorAll('#uploadDocumentos input[type="button"],#uploadDocumentos input[type="submit"],#uploadDocumentos button')];
+          sxShowBtn(document.getElementById('btnAnexar') || adj.find(b => /^\s*Adjuntar\s*$/i.test(b.value || b.textContent)) || adj[adj.length - 1]);
         } catch (e) { log('sxv-bad', '✗ ' + sxClean(e && e.message)); }
         go.disabled = false;
       };
