@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.205
+// @version      0.206
 // @description  AVC MAKEOVER (y llenado de la página 1 de SERVEX en VUCEM): renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -328,7 +328,10 @@
   function servexMain() {
     const PJ = () => PW.jQuery || PW.$;
     const isServex = () => !!(document.getElementById('selectTipoServicio') && document.getElementById('aduanaDespacho') && document.getElementById('numeroPedimento'));
-    if (!isServex()) return; // otra página de VUCEM: nada
+    // 0.206: página 1 (capturar), 2 (tipos de documento) o 3 (anexar); cualquier otra página de VUCEM: nada
+    const sxPageNum = isServex() ? 1 : (document.getElementById('selectDoctosEspecificos') && document.getElementById('jqgridDoctosEspecificos')) ? 2
+      : (document.getElementById('docs') && document.forms.documentosRequeridos && document.getElementById('uploadDocumentos')) ? 3 : 0;
+    if (!sxPageNum) return;
     const sxClean = s => String(s || '').replace(/\s+/g, ' ').trim();
     const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -392,6 +395,7 @@
       try {
         if (file.size > 30 * 1024 * 1024) throw new Error('archivo de más de 30 MB');
         const buf = await file.arrayBuffer();
+        out.buf = buf.slice(0); // copia para convertirlo al estándar VUCEM (pdf.js puede quedarse con el original)
         const head = new TextDecoder('latin1').decode(new Uint8Array(buf, 0, Math.min(buf.byteLength, 400)));
         if (!/^\s*%PDF/.test(head)) throw new Error('no es PDF');
         const restore = sxHideArrayProps();
@@ -430,13 +434,256 @@
         } else if (SX_UUID_RE.test(text)) {
           // 0.204: CFDI = cualquier otro PDF con texto que traiga UUID (cada sistema de facturación lo acomoda distinto: no se lee más)
           out.kind = 'cfdi';
-          out.data = { uuids: [...new Set((text.match(new RegExp(SX_UUID_RE.source, 'gi')) || []).map(u => u.toUpperCase()))], text: c };
+          out.data = { uuids: [...new Set((text.match(new RegExp(SX_UUID_RE.source, 'gi')) || []).map(u => u.toUpperCase()))], text: c, folio: sxFolio(text, pages[0] || []) };
         } else throw new Error('no es remesa, pedimento, guía ni CFDI (sin UUID)');
       } catch (e) {
         out.error = sxClean(e && e.message) || 'no se pudo leer';
         if (DEBUG) console.warn('[AVCx] SERVEX archivo:', file.name, e);
       }
       return out;
+    }
+
+
+    /* ---------- 0.206: conversión al estándar VUCEM y páginas 2-3 ---------- */
+    // Igual que convertir_vucem.bat (Ghostscript pdfimage8 -r300): cada página a imagen en grises de 8 bits a EXACTAMENTE 300 dpi,
+    // FlateDecode, PDF 1.3 sin formularios/JavaScript/incrustados; si pasa de SX_MAXBYTES se rehace en B/N (1 bit, como pdfimage1).
+    // Todo en el navegador (pdf.js + CompressionStream); nada sale del equipo.
+    const SX_MAXBYTES = 10 * 1024 * 1024;
+    const SX_DPI = 300;
+    async function sxDeflate(u8) {
+      const cs = new CompressionStream('deflate'); // zlib = FlateDecode
+      return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(cs)).arrayBuffer());
+    }
+    function sxPdfFromImages(imgs) { // imgs: [{w, h, bpc, data (Flate)}] → Uint8Array PDF 1.3 con la estructura de Ghostscript
+      const enc = new TextEncoder(), parts = [], offs = [];
+      let len = 0;
+      const put = x => { const b = typeof x === 'string' ? enc.encode(x) : x; parts.push(b); len += b.length; };
+      const obj = (n, body, stream) => {
+        offs[n] = len;
+        put(`${n} 0 obj\n${body}\n`);
+        if (stream) { put('stream\n'); put(stream); put('\nendstream\n'); }
+        put('endobj\n');
+      };
+      put('%PDF-1.3\n%\xC7\xEC\x8F\xA2\n');
+      const n = imgs.length, kids = imgs.map((_, i) => `${6 + i * 3} 0 R`).join(' ');
+      obj(1, '<<\n/Pages 2 0 R\n/Type /Catalog\n/Info 3 0 R\n>>');
+      obj(2, `<<\n/Count ${n}\n/Kids [${kids} ]\n/Type /Pages\n>>`);
+      obj(3, '<<\n/Producer(AVC MAKEOVER)\n>>');
+      imgs.forEach((im, i) => {
+        const io = 4 + i * 3, co = io + 1, po = io + 2; // imagen, contenido, página (kids: 6, 9, 12…)
+        const pw = (im.w * 72 / SX_DPI).toFixed(6), ph = (im.h * 72 / SX_DPI).toFixed(6);
+        obj(io, `<<\n/Length ${im.data.length}\n/Subtype /Image\n/Width ${im.w}\n/Height ${im.h}\n/ColorSpace /DeviceGray\n/BitsPerComponent ${im.bpc}\n/Filter /FlateDecode\n>>`, im.data);
+        const c = enc.encode(`q ${pw} 0 0 ${ph} 0 0 cm /Im1 Do Q\n`);
+        obj(co, `<<\n/Length ${c.length}\n>>`, c);
+        obj(po, `<<\n/Contents ${co} 0 R\n/Type /Page\n/Parent 2 0 R\n/MediaBox [0 0 ${pw} ${ph}]\n/Resources <<\n/XObject <<\n/Im1 ${io} 0 R\n>>\n>>\n>>`);
+      });
+      const size = 3 + n * 3 + 1, xref = len;
+      let x = `xref\n0 ${size}\n0000000000 65535 f \n`;
+      for (let i = 1; i < size; i++) x += `${String(offs[i] || 0).padStart(10, '0')} 00000 n \n`;
+      put(x + `trailer\n<<\n/Size ${size}\n/Root 1 0 R\n>>\nstartxref\n${xref}\n%%EOF\n`);
+      const out = new Uint8Array(len);
+      let p = 0; parts.forEach(b => { out.set(b, p); p += b.length; });
+      return out;
+    }
+    async function sxToVucem(buf) {
+      const lib = getPdfjs(), restore = sxHideArrayProps();
+      const grays = [];
+      try {
+        const open = ff => lib.getDocument({ data: new Uint8Array(buf.slice(0)), isEvalSupported: false, disableFontFace: ff, useSystemFonts: !ff, verbosity: 0 }).promise;
+        let doc;
+        try { doc = await open(false); } catch (_) { doc = await open(true); }
+        try {
+          for (let i = 1; i <= doc.numPages; i++) {
+            const page = await doc.getPage(i), v1 = page.getViewport({ scale: 1 });
+            const w = Math.max(1, Math.round(v1.width * SX_DPI / 72)), h = Math.max(1, Math.round(v1.height * SX_DPI / 72));
+            const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+            const ctx = cv.getContext('2d', { willReadFrequently: true });
+            ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+            await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: w / v1.width }) }).promise;
+            const px = ctx.getImageData(0, 0, w, h).data, g = new Uint8Array(w * h);
+            for (let j = 0, k = 0; j < g.length; j++, k += 4) g[j] = (px[k] * 299 + px[k + 1] * 587 + px[k + 2] * 114 + 500) / 1000;
+            cv.width = cv.height = 0;
+            grays.push({ w, h, g });
+            page.cleanup();
+          }
+        } finally { try { doc.destroy(); } catch (_) { /* ignore */ } }
+      } finally { restore(); }
+      let pdf = sxPdfFromImages(await Promise.all(grays.map(async p => ({ w: p.w, h: p.h, bpc: 8, data: await sxDeflate(p.g) }))));
+      let bn = false;
+      if (pdf.length > SX_MAXBYTES) { // respaldo en blanco y negro (1 bit; 1 = blanco)
+        bn = true;
+        pdf = sxPdfFromImages(await Promise.all(grays.map(async p => {
+          const rb = Math.ceil(p.w / 8), b = new Uint8Array(rb * p.h);
+          for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) if (p.g[y * p.w + x] >= 128) b[y * rb + (x >> 3)] |= 0x80 >> (x & 7);
+          return { w: p.w, h: p.h, bpc: 1, data: await sxDeflate(b) };
+        })));
+      }
+      return { bytes: pdf, pages: grays.length, bn, big: pdf.length > SX_MAXBYTES };
+    }
+    // Nombres cortos (pedido del usuario): pedimento_R(n) o pedimento; guia_ppp-nnnnnnnn; CFDI_folio interno (no el UUID)
+    const sxSafe = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');
+    // Folio interno: "Folio: A-123" en el mismo renglón o, si la etiqueta va sola ("Serie - Folio"), el valor justo debajo
+    const SX_FOLIO_VAL = /^[A-Z]{0,5}\s?-?\s?\d{1,12}$/i;
+    function sxFolio(text, items) {
+      const t = String(text || '').replace(/\s+/g, ' ');
+      const m = t.match(/\bFOLIO(?!\s*(?:FISCAL|SAT|DEL\s+SAT))(?:\s+INTERNO)?\s*[:#.]?\s*([A-Z]{0,5}\s?-?\s?\d{1,12})\b(?!-[0-9A-F]{4})/i);
+      if (m) return sxSafe(m[1].replace(/\s+/g, ''));
+      for (const lb of (items || []).filter(x => /\bFOLIO\b(?!\s*(FISCAL|SAT|DEL))/i.test(x.s))) {
+        const v = (items || []).filter(x => x.y < lb.y - 1 && x.y > lb.y - lb.h * 3.5 && x.x < lb.x + lb.w + 60 && x.x + x.w > lb.x - 60 && SX_FOLIO_VAL.test(x.s.trim()))
+          .sort((a, b) => b.y - a.y)[0];
+        if (v) return sxSafe(v.s.replace(/\s+/g, ''));
+      }
+      return '';
+    }
+    // Plan de carga: CFDI × n, guías × n, pedimentos × n (orden de remesa); sin errores ni CFDI marcados como malos
+    function sxPlan(docs, m) {
+      const okd = docs.filter(d => !d.error && !d.skip && d.buf);
+      const rems = m ? m.peds.flatMap(e => e.rem) : [];
+      const remOf = u => { const r = rems.find(x => x.uuid && x.uuid === u); return r ? r.n : 999; };
+      const cf = okd.filter(d => d.kind === 'cfdi').sort((a, b) => Math.min(...a.data.uuids.map(remOf)) - Math.min(...b.data.uuids.map(remOf)));
+      const gu = okd.filter(d => d.kind === 'guia');
+      const pe = okd.filter(d => d.kind === 'remesa' || d.kind === 'pedimento').sort((a, b) => (a.data.consecutivo || 0) - (b.data.consecutivo || 0));
+      const names = new Set(), uniq = n => { let x = n, i = 2; while (names.has(x)) x = n.replace(/\.pdf$/, `_${i++}.pdf`); names.add(x); return x; };
+      return [
+        ...cf.map((d, i) => ({ d, kind: 'cfdi', name: uniq(`CFDI_${d.data.folio || i + 1}.pdf`) })),
+        ...gu.map((d, i) => ({ d, kind: 'guia', name: uniq(`guia_${d.data.guia ? d.data.guia.slice(0, 3) + '-' + d.data.guia.slice(3) : i + 1}.pdf`) })),
+        ...pe.map(d => ({ d, kind: 'ped', name: uniq(`${d.data.pedimento}${d.kind === 'remesa' && d.data.consecutivo ? '_R' + d.data.consecutivo : ''}.pdf`) })),
+      ];
+    }
+    // Guardado temporal entre páginas (VUCEM recarga y la página 2 borra localStorage): IndexedDB de VUCEM en este navegador.
+    // Se borra al poner los archivos en la página 3 o a las 24 h (SX_KEEP_MS). Resumen pequeño en el gestor (store 'sx_pend').
+    const SX_KEEP_MS = 24 * 3600 * 1000;
+    function sxDb() {
+      return new Promise((res, rej) => {
+        const r = indexedDB.open('avcx-servex', 1);
+        r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains('files')) r.result.createObjectStore('files', { keyPath: 'ord' }); };
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+      });
+    }
+    async function sxDbDo(mode, fn) {
+      const db = await sxDb();
+      try {
+        return await new Promise((res, rej) => {
+          const tx = db.transaction('files', mode), st = tx.objectStore('files');
+          const out = fn(st);
+          tx.oncomplete = () => res(out && out.result !== undefined ? out.result : out); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error);
+        });
+      } finally { db.close(); }
+    }
+    const sxDbClear = () => sxDbDo('readwrite', st => { st.clear(); }).catch(() => {});
+    const sxDbAll = () => sxDbDo('readonly', st => st.getAll());
+    async function sxSaveSet(items, meta) {
+      await sxDbDo('readwrite', st => { st.clear(); items.forEach((it, i) => st.put({ ord: i, kind: it.kind, name: it.name, blob: new Blob([it.bytes], { type: 'application/pdf' }) })); });
+      store.set('sx_pend', JSON.stringify(Object.assign({ t: Date.now() }, meta)));
+    }
+    function sxPend() {
+      try { const p = JSON.parse(store.get('sx_pend', '') || 'null'); if (p && Date.now() - p.t < SX_KEEP_MS) return p; } catch (_) { /* ignore */ }
+      return null;
+    }
+    async function sxDropSet() { store.set('sx_pend', ''); await sxDbClear(); }
+
+    // Páginas 2 y 3: panel pequeño con el mismo estilo
+    function sxOtherPage(pg) {
+      const pend = sxPend();
+      if (!pend) sxDbClear(); // vencido o sin pendiente: no queda nada guardado
+      const btn = el('button', { id: 'sxv-btn', type: 'button' }, 'SERVEX');
+      const pan = el('div', { id: 'sxv-panel' });
+      const n = pend ? pend.n : null;
+      pan.innerHTML = `<div class="sxv-hd"><span>SERVEX · página ${pg}</span><button type="button" class="sxv-x" title="Cerrar">×</button></div>
+<div class="sxv-body"></div><button type="button" class="sxv-go"></button><div class="sxv-log"></div><div class="sxv-ft"></div>`;
+      document.body.append(btn, pan);
+      const q = s => pan.querySelector(s), body = q('.sxv-body'), go = q('.sxv-go'), ft = q('.sxv-ft');
+      btn.onclick = () => { pan.style.display = pan.style.display === 'none' ? '' : 'none'; };
+      q('.sxv-x').onclick = () => { pan.style.display = 'none'; };
+      const log = (cls, msg) => { const d = el('div', { class: cls }); d.textContent = msg; q('.sxv-log').appendChild(d); };
+      if (!pend) { body.innerHTML = '<div class="sxv-mut">No hay documentos preparados: suelta los PDF en la página 1.</div>'; go.style.display = 'none'; return; }
+      const total = n.c + n.g + n.p;
+      const $ = PJ();
+      const dlgText = () => { // cierra avisos abiertos del portal (jqAlert) y regresa su texto
+        const t = [];
+        try { const a = $('.ui-dialog-content').toArray(); for (let i = 0; i < a.length; i++) { try { if ($(a[i]).dialog('isOpen')) { t.push(sxClean(a[i].textContent)); $(a[i]).dialog('close'); } } catch (_) { /* ignore */ } } } catch (_) { /* ignore */ }
+        return t.filter(Boolean).join(' · ');
+      };
+      if (pg === 2) {
+        body.innerHTML = `<div>Documentos a cargar (pedimento ${esc(pend.ped || '')}):</div><div class="sxv-mut" style="line-height:1.7">${n.c ? `${n.c} × CFDI (valor de la mercancía)<br>` : ''}${n.g} × Guía (medio de transporte)<br>${n.p} × Pedimento</div>`;
+        go.textContent = `Preparar ${total} documentos`;
+        ft.textContent = 'Revisa y da Continuar tú.';
+        go.onclick = () => {
+          q('.sxv-log').innerHTML = '';
+          try {
+            const grid = $('#jqgridDoctosEspecificos'), sel = $('#selectDoctosEspecificos');
+            const opts = sel.find('option').toArray();
+            const code = re => { const o = opts.find(x => re.test(x.textContent)); return o ? o.value : ''; };
+            const want = [[/valor de la mercanc/i, n.c, 'CFDI'], [/medio de transporte/i, n.g, 'guía'], [/pedimento/i, n.p, 'pedimento']];
+            const ids0 = grid.jqGrid('getDataIDs'), del = [];
+            for (let i = 0; i < ids0.length; i++) del.push(String(ids0[i]));
+            del.forEach(id => grid.jqGrid('delRowData', id));
+            want.forEach(([re, k, lbl]) => {
+              if (!k) return;
+              const v = code(re);
+              if (!v) { log('sxv-bad', `✗ No encontré el tipo "${lbl}" en la lista de VUCEM`); return; }
+              sel.val(v);
+              for (let i = 0; i < k; i++) PW.addDoctoEspecifico();
+              const msg = dlgText();
+              let cnt = 0; const ids = grid.jqGrid('getDataIDs');
+              for (let i = 0; i < ids.length; i++) if (String(grid.jqGrid('getRowData', ids[i]).idTipoDocumento) === String(v)) cnt++;
+              log(cnt === k ? 'sxv-ok' : 'sxv-bad', `${cnt === k ? '✓' : '✗'} ${cnt} de ${k} × ${lbl}${msg ? ' — ' + msg : ''}`);
+            });
+            sel.val('-1');
+            log('sxv-mut', 'Listo. Revisa la tabla y da Continuar.');
+          } catch (e) { log('sxv-bad', '✗ ' + sxClean(e && e.message)); }
+        };
+        return;
+      }
+      // Página 3
+      body.innerHTML = '<div class="sxv-mut">Leyendo archivos guardados…</div>';
+      go.textContent = 'Poner archivos';
+      ft.textContent = 'Revisa y da Adjuntar tú.';
+      let files = [];
+      sxDbAll().then(rows => {
+        files = (rows || []).sort((a, b) => a.ord - b.ord);
+        body.innerHTML = files.length ? `<div class="sxv-mut" style="line-height:1.6">${files.map((f, i) => `${i + 1} ${esc(f.name)}`).join('<br>')}</div>` : '<div class="sxv-bad">✗ No encontré los archivos convertidos: suéltalos otra vez en la página 1.</div>';
+        if (!files.length) go.style.display = 'none';
+      }).catch(() => { body.innerHTML = '<div class="sxv-bad">✗ No pude leer los archivos guardados.</div>'; go.style.display = 'none'; });
+      const kindOf = s => (/valor de la mercanc/i.test(s) ? 'cfdi' : /medio de transporte|gu[ií]a/i.test(s) ? 'guia' : /pedimento/i.test(s) ? 'ped' : '');
+      const fileInputs = () => [...document.querySelectorAll('#uploadDocumentos input[type="file"]')];
+      go.onclick = async () => {
+        q('.sxv-log').innerHTML = '';
+        go.disabled = true;
+        try {
+          if (!fileInputs().length) {
+            PW.documentos.upload(); // abre el formulario de carga del portal (renglones con "Adjunta nuevo documento")
+            for (let i = 0; i < 100 && !fileInputs().length; i++) await sleep(150);
+          }
+          const ins = fileInputs();
+          if (!ins.length) {
+            const m = sxClean((document.getElementById('msgAnexarDocs') || {}).textContent);
+            throw new Error(m || 'no apareció el formulario de carga');
+          }
+          const queue = { cfdi: files.filter(f => f.kind === 'cfdi'), guia: files.filter(f => f.kind === 'guia'), ped: files.filter(f => f.kind === 'ped') };
+          const rest = files.slice();
+          let put = 0;
+          ins.forEach(inp => {
+            const fm = inp.form, idx = (inp.name.match(/documentos\[(\d+)\]/) || [])[1];
+            const nm = fm && idx != null && fm.elements[`documentos[${idx}].nombre`];
+            const k = kindOf((nm && nm.value) || (inp.closest('tr,div') || {}).textContent || '');
+            const f = (k && queue[k].shift()) || null;
+            const use = f || (!k ? rest.find(x => !x.used) : null);
+            if (!use) return;
+            use.used = true;
+            const dt = new DataTransfer();
+            dt.items.add(new File([use.blob], use.name, { type: 'application/pdf' }));
+            inp.files = dt.files;
+            inp.dispatchEvent(new Event('change', { bubbles: true }));
+            put++;
+          });
+          const ok = put === files.length && put === ins.length;
+          log(ok ? 'sxv-ok' : 'sxv-warn', `${ok ? '✓' : '!'} ${put} de ${files.length} archivos puestos (${ins.length} renglones en VUCEM)`);
+          if (ok) { await sxDropSet(); log('sxv-mut', 'Listo. Revisa y da Adjuntar. Los archivos guardados ya se borraron.'); }
+          else log('sxv-warn', '! Revisa los renglones: no cuadran con los archivos. Siguen guardados hasta 24 h.');
+        } catch (e) { log('sxv-bad', '✗ ' + sxClean(e && e.message)); }
+        go.disabled = false;
+      };
     }
 
     // Junta lo leído: un pedimento (con sus remesas) y sus guías
@@ -472,10 +719,10 @@
       // 0.204: CFDI (se cargan en el Paso 3): traen el RFC del pedimento; en remesas, su UUID = el de las observaciones de una remesa.
       // Mascota (descripción de perro/gato) no lleva CFDI. Los errores de CFDI no impiden llenar la página 1 (bad: rojo, sin bloquear).
       const bad = [], cfdis = ok.filter(d => d.kind === 'cfdi'), rfc0 = uniq('rfc')[0] || '';
-      cfdis.forEach(d => { if (rfc0 && !d.data.text.includes(rfc0)) bad.push(`${d.name}: el CFDI no es del RFC ${rfc0}`); });
+      cfdis.forEach(d => { d.skip = false; if (rfc0 && !d.data.text.includes(rfc0)) { d.skip = true; bad.push(`${d.name}: el CFDI no es del RFC ${rfc0}`); } });
       const rems = list.flatMap(e => e.rem), mascota = descs.some(x => /PERRO|GATO/.test(x));
       if (rems.length) {
-        cfdis.forEach(d => { if (!rems.some(r => r.uuid && d.data.uuids.includes(r.uuid))) bad.push(`${d.name}: su UUID no es de ninguna remesa`); });
+        cfdis.forEach(d => { if (!rems.some(r => r.uuid && d.data.uuids.includes(r.uuid))) { d.skip = true; bad.push(`${d.name}: su UUID no es de ninguna remesa`); } });
         rems.forEach(r => { if (!r.uuid) warn.push(`la remesa ${r.n} no trae UUID en observaciones`); else if (!cfdis.some(d => d.data.uuids.includes(r.uuid))) bad.push(`falta el CFDI de la remesa ${r.n}`); });
       } else if (list.length) {
         if (mascota && cfdis.length) warn.push('mascota: no lleva CFDI');
@@ -514,6 +761,7 @@
 #sxv-panel .sxv-ft{font-size:11px;color:#888;margin-top:6px}`;
     document.head.appendChild(css);
     const el = (tag, attrs, html) => { const e = document.createElement(tag); Object.entries(attrs || {}).forEach(([k, v]) => e.setAttribute(k, v)); if (html != null) e.innerHTML = html; return e; };
+    if (sxPageNum !== 1) { sxOtherPage(sxPageNum); return; }
     const btn = el('button', { id: 'sxv-btn', type: 'button', title: 'Llenar la página 1 con los PDF de la operación' }, 'SERVEX');
     const pan = el('div', { id: 'sxv-panel' });
     const tz = 'America/Cancun';
@@ -522,7 +770,7 @@
     pan.innerHTML = `
 <div class="sxv-hd"><span>SERVEX · página 1</span><button type="button" class="sxv-x" title="Cerrar">×</button></div>
 <div class="sxv-drop" tabindex="0">Suelta aquí la remesa o el pedimento y las guías (PDF)<input type="file" accept=".pdf,application/pdf" multiple hidden></div>
-<div class="sxv-docs"></div>
+<div class="sxv-docs"></div><div class="sxv-conv"></div>
 <div class="sxv-g3"><div><label>Fecha</label><input class="sxv-fecha" placeholder="DD/MM/AAAA" value="${p2(man.day)}/${p2(man.month)}/${man.year}"></div>
 <div><label>Inicio</label><input class="sxv-hi sxv-hora" value="${SX_HORA_INI}" maxlength="5" title="↑↓ o rueda del mouse: ±30 min"></div><div><label>Fin</label><input class="sxv-hf sxv-hora" value="${SX_HORA_FIN}" maxlength="5" title="↑↓ o rueda del mouse: ±30 min"></div></div>
 <label>Descripción genérica</label><input class="sxv-desc" maxlength="500">
@@ -632,6 +880,34 @@
       f.tipo.value = sxTipoDe(f.desc.value.toUpperCase());
       justAuto = true; refreshJust();
       showDocs();
+      sxConvertAll();
+    }
+    // 0.206: convierte al estándar VUCEM lo que se va a cargar en el Paso 3 y lo guarda (IndexedDB) para las páginas 2 y 3
+    let convGen = 0;
+    async function sxConvertAll() {
+      const gen = ++convGen, box = q('.sxv-conv');
+      const plan = sxPlan(docs, model);
+      if (!plan.length || (model && model.err.length)) { box.innerHTML = ''; return; }
+      const line = (cls, t) => { box.innerHTML = `<div class="${cls}">${esc(t)}</div>`; };
+      const items = [];
+      for (let i = 0; i < plan.length; i++) {
+        const it = plan[i];
+        if (gen !== convGen) return; // llegaron archivos nuevos: empieza otra conversión
+        line('sxv-mut', `… Convirtiendo para VUCEM ${i + 1} de ${plan.length} (${it.name})`);
+        try {
+          if (!it.d.conv) it.d.conv = await sxToVucem(it.d.buf);
+        } catch (e) {
+          if (DEBUG) console.warn('[AVCx] SERVEX conversión:', it.d.name, e);
+          line('sxv-bad', `✗ No se pudo convertir ${it.d.name}`); return;
+        }
+        if (it.d.conv.big) { line('sxv-bad', `✗ ${it.d.name} pasa de 10 MB aun en blanco y negro: divídelo`); return; }
+        items.push({ kind: it.kind, name: it.name, bytes: it.d.conv.bytes, bn: it.d.conv.bn });
+      }
+      if (gen !== convGen) return;
+      const n = { c: items.filter(x => x.kind === 'cfdi').length, g: items.filter(x => x.kind === 'guia').length, p: items.filter(x => x.kind === 'ped').length };
+      try { await sxSaveSet(items, { n, ped: (model.peds[0] || {}).ped || '' }); } catch (e) { line('sxv-bad', '✗ No se pudieron guardar los convertidos en el navegador'); return; }
+      const mb = items.reduce((a, x) => a + x.bytes.length, 0) / 1048576, bn = items.filter(x => x.bn).length;
+      line('sxv-ok', `✓ ${items.length} PDF convertidos para VUCEM (${mb.toFixed(1)} MB${bn ? `; ${bn} en B/N` : ''}): ${n.c} CFDI · ${n.g} guías · ${n.p} pedimentos`);
     }
     const drop = q('.sxv-drop'), inp = drop.querySelector('input');
     drop.onclick = () => inp.click();
