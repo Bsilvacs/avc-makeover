@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.203
+// @version      0.205
 // @description  AVC MAKEOVER (y llenado de la página 1 de SERVEX en VUCEM): renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -386,6 +386,7 @@
       }
       return () => saved.forEach(([k, d]) => { try { Object.defineProperty(Array.prototype, k, d); } catch (_) { /* ignore */ } });
     }
+    const SX_UUID_RE = /[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/i;
     async function sxReadFile(file) {
       const out = { name: file.name, kind: '', data: null, error: '' };
       try {
@@ -398,14 +399,20 @@
         try { pages = await avcfPdfPages(buf); } finally { restore(); }
         const lines = pages.flatMap(avcfLines);
         const text = lines.join('\n');
-        if (text.replace(/\s+/g, '').length < 40) throw new Error('sin texto (¿convertido para VUCEM o escaneado?): ese se sube en el Paso 3');
+        if (text.replace(/\s+/g, '').length < 40) {
+          // 0.205: PDF sin texto = guía escaneada (CFDI, remesa y pedimento siempre traen texto). Número: del nombre del archivo
+          // (GUIA/AWB/MAWB + número) o, si no, de las observaciones del pedimento (sxBuild). Sin descripción ni destino (no hay OCR).
+          const nm = file.name.match(/(\d{3})\D?(\d{4})\D?(\d{4})/);
+          out.kind = 'guia'; out.data = { guia: nm ? nm[1] + nm[2] + nm[3] : '', nature: '', pais: '', notext: true };
+          return out;
+        }
         const c = text.replace(/\s+/g, '').toUpperCase();
         const aduE = (text.match(/ADUANA\s+E\/S:?\s*(\d{3})\b/i) || [])[1] || '';
         if (c.includes('FORMATODEAVISOCONSOLIDADO')) {
           const r = avcfParseRemesa(text);
           if (r.error) throw new Error(r.error);
           out.kind = 'remesa';
-          out.data = Object.assign(r, { aduE, guia: guiaNorm((text.match(/GUIA:\s*([\d\s-]{11,16})/i) || [])[1]) });
+          out.data = Object.assign(r, { aduE, guia: guiaNorm((text.match(/GUIA:\s*([\d\s-]{11,16})/i) || [])[1]), uuid: ((text.match(SX_UUID_RE) || [])[0] || '').toUpperCase() });
         } else if (c.includes('FORMASIMPLIFICADADELPEDIMENTO')) {
           const p = avcfParsePedimento(text);
           if (p.error) throw new Error(p.error);
@@ -420,7 +427,11 @@
           out.kind = 'guia';
           out.data = { guia: m ? m[1] + m[2] + m[3] : '', nature, pais: sxCountry(lines) };
           if (!out.data.guia) throw new Error('no encontré el número de guía');
-        } else throw new Error('no es remesa, pedimento ni guía aérea');
+        } else if (SX_UUID_RE.test(text)) {
+          // 0.204: CFDI = cualquier otro PDF con texto que traiga UUID (cada sistema de facturación lo acomoda distinto: no se lee más)
+          out.kind = 'cfdi';
+          out.data = { uuids: [...new Set((text.match(new RegExp(SX_UUID_RE.source, 'gi')) || []).map(u => u.toUpperCase()))], text: c };
+        } else throw new Error('no es remesa, pedimento, guía ni CFDI (sin UUID)');
       } catch (e) {
         out.error = sxClean(e && e.message) || 'no se pudo leer';
         if (DEBUG) console.warn('[AVCx] SERVEX archivo:', file.name, e);
@@ -436,7 +447,7 @@
         const p = d.data, k = p.pedimento;
         if (!peds.has(k)) peds.set(k, { ped: k, patente: p.patente, aduana: p.aduana, aduE: p.aduE, tipoOp: p.tipoOp, rfc: p.rfc, normal: d.kind === 'pedimento', cove: '', rem: [] });
         const e = peds.get(k);
-        if (d.kind === 'remesa') { if (p.cove && !e.rem.some(r => r.cove === p.cove)) e.rem.push({ n: p.consecutivo, cove: p.cove }); }
+        if (d.kind === 'remesa') { if (p.cove && !e.rem.some(r => r.cove === p.cove)) e.rem.push({ n: p.consecutivo, cove: p.cove, uuid: p.uuid }); }
         else { e.normal = true; e.cove = p.cove; }
         ['aduE', 'rfc', 'tipoOp'].forEach(f => { if (!e[f] && p[f]) e[f] = p[f]; });
         if (p.guia) guiasPed.add(p.guia);
@@ -450,16 +461,33 @@
       if (uniq('tipoOp').length > 1) err.push('hay pedimentos de tipo de operación distinto');
       list.forEach(e => { if (e.normal && e.rem.length) err.push(`el ${e.ped} viene como normal y como remesa`); });
       const guias = ok.filter(d => d.kind === 'guia').map(d => d.data);
+      // guías escaneadas sin número en el nombre: toman las guías de las observaciones que no tienen PDF, en orden
+      const libres = [...guiasPed].filter(g => !guias.some(x => x.guia === g));
+      guias.filter(g => !g.guia).forEach(g => { g.guia = libres.shift() || ''; });
       guias.forEach(g => { if (guiasPed.size && !guiasPed.has(g.guia)) warn.push(`la guía ${guiaFmt(g.guia)} no está en las observaciones del pedimento`); });
       guiasPed.forEach(g => { if (!guias.some(x => x.guia === g)) warn.push(`falta el PDF de la guía ${guiaFmt(g)} (descripción y destino)`); });
       const descs = [], natures = [];
       guias.forEach(g => { if (!g.nature) return; natures.push(g.nature); const r = sxDescOf(g.nature); if (!descs.includes(r.d)) descs.push(r.d); if (!r.known) warn.push('descripción no reconocida: revísala (lo que corrijas se recuerda)'); });
+      const scan = guias.filter(g => g.notext);
+      // 0.204: CFDI (se cargan en el Paso 3): traen el RFC del pedimento; en remesas, su UUID = el de las observaciones de una remesa.
+      // Mascota (descripción de perro/gato) no lleva CFDI. Los errores de CFDI no impiden llenar la página 1 (bad: rojo, sin bloquear).
+      const bad = [], cfdis = ok.filter(d => d.kind === 'cfdi'), rfc0 = uniq('rfc')[0] || '';
+      cfdis.forEach(d => { if (rfc0 && !d.data.text.includes(rfc0)) bad.push(`${d.name}: el CFDI no es del RFC ${rfc0}`); });
+      const rems = list.flatMap(e => e.rem), mascota = descs.some(x => /PERRO|GATO/.test(x));
+      if (rems.length) {
+        cfdis.forEach(d => { if (!rems.some(r => r.uuid && d.data.uuids.includes(r.uuid))) bad.push(`${d.name}: su UUID no es de ninguna remesa`); });
+        rems.forEach(r => { if (!r.uuid) warn.push(`la remesa ${r.n} no trae UUID en observaciones`); else if (!cfdis.some(d => d.data.uuids.includes(r.uuid))) bad.push(`falta el CFDI de la remesa ${r.n}`); });
+      } else if (list.length) {
+        if (mascota && cfdis.length) warn.push('mascota: no lleva CFDI');
+        if (!mascota && cfdis.length !== 1) warn.push(cfdis.length ? 'el pedimento normal lleva un solo CFDI' : 'falta el CFDI');
+      }
       const paises = [...new Set(guias.map(g => g.pais).filter(Boolean))];
-      if (guias.length && !paises.length) warn.push('no reconocí el país de destino de la guía: elígelo');
+      if (guias.some(g => !g.notext) && !paises.length) warn.push('no reconocí el país de destino de la guía: elígelo');
       if (paises.length > 1) warn.push('las guías van a países distintos: elige el de procedencia');
       return {
         peds: list, rfc: uniq('rfc')[0] || '', aduE: uniq('aduE')[0] || '', aduana: (list[0] || {}).aduana || '', tipoOp: uniq('tipoOp')[0] || '',
-        patente: (list[0] || {}).patente || '', desc: descs.join(', '), natures, pais: paises.length === 1 ? paises[0] : '', warn: [...new Set(warn)], err,
+        patente: (list[0] || {}).patente || '', desc: descs.join(', '), natures, pais: paises.length === 1 ? paises[0] : '', warn: [...new Set(warn)], err, bad: [...new Set(bad)], ncfdi: cfdis.length,
+        scan: scan.length, nscan: scan.length && !descs.length, // nscan: ninguna guía legible → descripción y país de lo recordado por RFC
       };
     }
 
@@ -474,8 +502,8 @@
 #sxv-panel .sxv-drop{border:1.5px dashed #aaa;border-radius:6px;padding:10px;text-align:center;color:#555;cursor:pointer;margin-bottom:8px}
 #sxv-panel .sxv-drop.sxv-over{border-color:#691c32;background:#f8eef1}
 #sxv-panel label{display:block;font-size:11px;color:#666;margin:6px 0 2px;font-weight:400}
-#sxv-panel input,#sxv-panel select,#sxv-panel textarea{width:100%;font:13px system-ui,sans-serif;padding:4px 6px;border:1px solid #bbb;border-radius:4px;margin:0;height:auto;color:#222;background:#fff}
-#sxv-panel textarea{resize:vertical;font-size:12px}
+#sxv-panel input,#sxv-panel select,#sxv-panel textarea{width:100%;font:13px system-ui,sans-serif!important;line-height:1.3!important;padding:4px 6px!important;border:1px solid #bbb;border-radius:4px;margin:0;height:auto!important;min-height:0!important;box-sizing:border-box!important;color:#222;background:#fff}
+#sxv-panel textarea{resize:vertical;font-size:12px!important}
 #sxv-panel .sxv-g3{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:6px}
 #sxv-panel .sxv-g2{display:grid;grid-template-columns:1fr 2fr;gap:6px}
 #sxv-panel .sxv-go{width:100%;margin:10px 0 6px;background:#691c32;color:#fff;border:0;border-radius:5px;padding:8px;font-weight:600;cursor:pointer}
@@ -568,10 +596,19 @@
         m.peds.forEach(e => rows.push(`<div class="sxv-ok">✓ Ped. ${esc(e.ped)} · ${esc(e.tipoOp)} · ${esc(e.aduE)} · ${esc(e.rfc)}${e.rem.length ? ` · R${e.rem.map(r => r.n).join('-')} (${e.rem.length} COVE)` : ' · normal'}</div>`));
         const g = docs.filter(d => !d.error && d.kind === 'guia').length;
         if (g) rows.push(`<div class="sxv-ok">✓ ${g} guía${g > 1 ? 's' : ''}${m.pais ? ' · destino ' + esc(m.pais) : ''}</div>`);
+        if (m.ncfdi) rows.push(`<div class="sxv-ok">✓ ${m.ncfdi} CFDI</div>`);
         m.err.forEach(w => rows.push(`<div class="sxv-bad">✗ ${esc(w)}</div>`));
+        m.bad.forEach(w => rows.push(`<div class="sxv-bad">✗ ${esc(w)}</div>`));
         m.warn.forEach(w => rows.push(`<div class="sxv-warn">! ${esc(w)}</div>`));
       }
       box.innerHTML = rows.join('');
+    }
+    const sxRfcMem = () => { try { return JSON.parse(store.get('sx_rfcmem', '{}')) || {}; } catch (_) { return {}; } };
+    function sxRfcMemSave(rfc, d, p) {
+      if (!rfc || !d) return;
+      const m = sxRfcMem(); m[rfc] = { d, p, t: Date.now() };
+      const ks = Object.keys(m).sort((a, b) => (m[b].t || 0) - (m[a].t || 0)); ks.slice(300).forEach(k => delete m[k]);
+      store.set('sx_rfcmem', JSON.stringify(m));
     }
     async function addFiles(list) {
       const files = [...list].filter(x => x && x.name);
@@ -586,7 +623,13 @@
       descSug = model.desc;
       f.desc.value = model.desc;
       if (model.pais) f.pais.value = model.pais;
-      f.tipo.value = sxTipoDe(model.desc.toUpperCase());
+      // 0.205: guías solo escaneadas → descripción y país de la última vez de ese RFC (store 'sx_rfcmem'); si una guía se lee, manda la guía
+      if (model.nscan) {
+        const mem = sxRfcMem()[model.rfc];
+        if (mem) { descSug = f.desc.value = mem.d || ''; if (mem.p) f.pais.value = mem.p; model.warn.push('guía escaneada: descripción y país de la última vez de este RFC; revísalos'); }
+        else model.warn.push('guía escaneada: escribe la descripción y elige el país (se recordarán para este RFC)');
+      } else if (model.scan) model.warn.push('hay guías escaneadas: descripción y país salen de las guías legibles');
+      f.tipo.value = sxTipoDe(f.desc.value.toUpperCase());
       justAuto = true; refreshJust();
       showDocs();
     }
@@ -656,6 +699,7 @@
       const goBtn = q('.sxv-go'); goBtn.disabled = true;
       // aprende la descripción corregida a mano (por el texto de la guía)
       const desc = sxClean(f.desc.value).toUpperCase();
+      if (m.nscan) sxRfcMemSave(m.rfc, desc, f.pais.value);
       if (desc && desc !== descSug && m.natures.length === 1) { learned[descKey(m.natures[0])] = desc; const ks = Object.keys(learned); if (ks.length > 200) delete learned[ks[0]]; store.set('sx_desc', JSON.stringify(learned)); }
       const $ = PJ();
       try { $('#tabs').tabs('option', 'active', 1); } catch (_) { /* ignore */ }
