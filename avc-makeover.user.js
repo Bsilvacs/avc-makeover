@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.201
+// @version      0.202
 // @description  AVC MAKEOVER (y llenado de la página 1 de SERVEX en VUCEM): renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -1230,22 +1230,22 @@
        se acomodan como piezas de la tarjeta; el texto de la celda sigue ahí (font-size 0) para copiado y avisos. Sin column-gap: el texto anónimo no deja hueco. */
     html.avcx-th-pp.avcx-touch .avcx-table tbody tr{column-gap:0}
     html.avcx-th-pp.avcx-touch .avcx-table tbody tr::after{order:7}
-    /* 0.200: la hora (o "de otra hoja"/"Vencido") va en el renglón 1 junto al sello: pedimento 1, hora 2, sello 3, salto 4, razón social 5, rec. 6. Nunca se parte (nowrap) */
-    html.avcx-th-pp.avcx-touch .avcx-table tbody tr::before{order:4}
+    /* 0.200: la hora (o "de otra hoja"/"Vencido") va en el renglón 1 junto al sello: pedimento 1, rec. 2, hora 3, sello 4, salto 5, razón social 6 (0.202). Nunca se parte (nowrap) */
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr::before{order:5}
     html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell{display:contents!important}
     html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell>i{display:none!important}
     html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td[data-avcx-col="ped"]{flex:1 1 0;min-width:0}
-    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell[data-avcx-stx]::before{order:3;flex:0 0 auto;align-self:center;max-width:62%;margin-left:8px}
-    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td[data-avcx-col="rs"]{order:5;flex:1 1 100%;min-width:0} /* 0.201: con base 0 compartía renglón con el salto (100 %) y quedaba con ancho 0 */
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell[data-avcx-stx]::before{order:4;flex:0 0 auto;align-self:center;max-width:62%;margin-left:8px}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td[data-avcx-col="rs"]{order:6;flex:1 1 100%;min-width:0} /* 0.201: con base 0 compartía renglón con el salto (100 %) y quedaba con ancho 0 */
     /* 0.199: !important porque "tr[data-avcx-status] td.avcx-stcell[data-avcx-tsh]::after{order:3;margin:0}" del celular es más específica: la hora caía antes de la razón social y pegada */
-    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell::after{order:2!important;flex:0 0 auto;align-self:center;margin:0 0 0 10px!important;white-space:nowrap;text-align:right}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell::after{order:3!important;flex:0 0 auto;align-self:center;margin:0 0 0 10px!important;white-space:nowrap;text-align:right}
     html.avcx-th-pp.avcx-touch .avcx-table tbody tr[data-avcx-status] td.avcx-stcell[data-avcx-tsh]::after{content:attr(data-avcx-tsh)}
     html.avcx-th-pp.avcx-touch .avcx-table tbody tr[data-avcx-extra][data-avcx-status="warn"] td.avcx-stcell::after{content:"de otra hoja"}
     html.avcx-th-pp.avcx-touch .avcx-table tbody tr[data-avcx-exp] td.avcx-stcell::after{content:"Vencido " attr(data-avcx-exp)}
     /* 0.200: la duración también va con display:contents: su hora (::before) y "rec. …" (::after, 0.201) junto al sello */
     html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell>.avcx-recdur[data-t]{display:contents!important}
-    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell>.avcx-recdur::before{content:attr(data-t);order:2;flex:0 0 auto;align-self:center;margin-left:10px;white-space:nowrap;color:#5E7268}
-    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell>.avcx-recdur::after{content:"· " attr(data-d);order:2;flex:0 0 auto;align-self:center;margin-left:4px;white-space:nowrap} /* 0.201: rec. junto a la hora */
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell>.avcx-recdur::before{content:attr(data-t);order:3;flex:0 0 auto;align-self:center;margin-left:6px;white-space:nowrap;color:#5E7268}
+    html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-stcell>.avcx-recdur::after{content:attr(data-d) " ·";order:2;flex:0 0 auto;align-self:center;margin-left:10px;white-space:nowrap} /* 0.201: rec. junto a la hora; 0.202: antes de la hora, que queda pegada al sello */
     html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td[data-avcx-col="rfc"]{order:8;margin-right:10px!important}
     html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-folcell{order:9;margin-right:10px!important}
     html.avcx-th-pp.avcx-touch .avcx-table tbody tr>td.avcx-aducell{order:10;margin-right:10px!important}
@@ -2579,6 +2579,7 @@
   let filterOpen = !FILTER_START_COLLAPSED;
   let filterWarned = false;
   let hideDeleted = HIDE_DELETED_ON && HIDE_DELETED_DEFAULT; // estado de la casilla "Ocultar AVC eliminados"
+  let ordPollPrev = 0; // 0.202: en un sondeo, hora de la actualización correcta anterior (0 = fuera del sondeo)
   let lastOkAt = Date.now();                                 // hora de la última actualización correcta del listado (al cargar la página cuenta como correcta)
   let delN = 0;                                              // cuántos AVC eliminados hay en el listado actual
   let hideExpired = EXPIRED_ON && store.get('hidexp', HIDE_EXPIRED_DEFAULT ? '1' : '0') === '1'; // casilla "Ocultar No presentados vencidos" (persistente)
@@ -3116,7 +3117,9 @@
       if (splitPrepend) {
         rs.slice().reverse().forEach(r => g.tbody.insertBefore(r, g.tbody.firstChild));
         // llegó el sondeo: los que entran a esta tabla y no estaban ya en ella se anotan con la hora de ahora
-        if (ORDER_GROUPS.includes(g.cls)) rs.forEach(r => { const f = rowFolio(r); if (f && ordPrev.get(f) !== g.cls) { ordSet(f, Date.now(), 'o', g.cls); if (ordPrev.has(f)) notifyAvc(f, g.cls, stText(r)); } });
+        // 0.202: solo si la actualización anterior fue reciente (WATCH_FRESH_MS); si no (celular dormido, pestaña congelada), stamp usa momento_cruce o la
+        // revisión anterior: antes un AVC ya cumplido al despertar quedaba con la hora de ahora y hasta arriba
+        if (ORDER_GROUPS.includes(g.cls)) rs.forEach(r => { const f = rowFolio(r); if (f && ordPrev.get(f) !== g.cls) { if (ordPollPrev && Date.now() - ordPollPrev >= WATCH_FRESH_MS) stamp(f, g.cls, false, ordPollPrev, Date.now()).then(scheduleSortTs, () => {}); else ordSet(f, Date.now(), 'o', g.cls); if (ordPrev.has(f)) notifyAvc(f, g.cls, stText(r)); } });
       } else rs.forEach(r => g.tbody.appendChild(r));
     });
   }
@@ -3803,7 +3806,8 @@
       const nN = nuevas.filter(vis).length, nC = cambiadas.filter(c => vis(c.r)).length;
       ins.slice().reverse().forEach(r => tbody.insertBefore(document.importNode(r, true), tbody.firstChild));
       splitKeep = true; splitPrepend = true; // las nuevas y actualizadas se acomodan arriba de su tabla y lo ya acomodado se conserva
-      try { enhance(); } finally { splitKeep = false; splitPrepend = false; ordPrev.clear(); }
+      ordPollPrev = lastOkAt; // 0.202: hora de la actualización anterior (pollOk la cambia después)
+      try { enhance(); } finally { splitKeep = false; splitPrepend = false; ordPrev.clear(); ordPollPrev = 0; }
       const partes = [];
       if (nN) partes.push(nN === 1 ? '1 AVC nuevo' : `${nN} AVC nuevos`);
       if (nC) partes.push(nC === 1 ? '1 AVC actualizado' : `${nC} AVC actualizados`);
