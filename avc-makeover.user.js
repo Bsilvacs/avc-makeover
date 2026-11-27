@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.213
+// @version      0.215
 // @description  AVC MAKEOVER (y llenado de la página 1 de SERVEX en VUCEM): renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -395,13 +395,16 @@
     const SX_UUID_RE = /[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/i;
     async function sxReadFile(file) {
       const out = { name: file.name, kind: '', data: null, error: '' };
+      // 0.215: lo que no es de la operación (XML, Excel, imágenes, PDF sin UUID que no es remesa, pedimento ni guía) se descarta en gris, sin error
+      const discard = () => { out.discard = true; out.buf = null; return out; };
+      if (!/\.pdf$/i.test(file.name) && !/pdf/i.test(file.type || '')) return discard();
       try {
         if (file.size > 30 * 1024 * 1024) throw new Error('archivo de más de 30 MB');
         const buf = await file.arrayBuffer();
         out.buf = buf.slice(0); // copia para convertirlo al estándar VUCEM (pdf.js puede quedarse con el original)
         out.ref = ((file.name.match(SX_REF_RE) || [])[1] || '').toUpperCase();
         const head = new TextDecoder('latin1').decode(new Uint8Array(buf, 0, Math.min(buf.byteLength, 400)));
-        if (!/^\s*%PDF/.test(head)) throw new Error('no es PDF');
+        if (!/^\s*%PDF/.test(head)) return discard();
         const restore = sxHideArrayProps();
         let pages;
         try { pages = await avcfPdfPages(buf); } finally { restore(); }
@@ -439,7 +442,7 @@
           // 0.204: CFDI = cualquier otro PDF con texto que traiga UUID (cada sistema de facturación lo acomoda distinto: no se lee más)
           out.kind = 'cfdi';
           out.data = { uuids: [...new Set((text.match(new RegExp(SX_UUID_RE.source, 'gi')) || []).map(u => u.toUpperCase()))], text: c, folio: sxFolio(text, pages[0] || [], file.name) };
-        } else throw new Error('no es remesa, pedimento, guía ni CFDI (sin UUID)');
+        } else return discard();
       } catch (e) {
         out.error = sxClean(e && e.message) || 'no se pudo leer';
         if (DEBUG) console.warn('[AVCx] SERVEX archivo:', file.name, e);
@@ -823,7 +826,7 @@
     const p2 = n => String(n).padStart(2, '0');
     pan.innerHTML = `
 <div class="sxv-hd"><span>SERVEX · página 1</span><button type="button" class="sxv-x" title="Cerrar">×</button></div>
-<div class="sxv-drop" tabindex="0">Suelta aquí la remesa o el pedimento y las guías (PDF)<input type="file" accept=".pdf,application/pdf" multiple hidden></div>
+<div class="sxv-drop" tabindex="0">Suelta aquí (o en cualquier parte de la página) la remesa o el pedimento, las guías y los CFDI (PDF)<input type="file" accept=".pdf,application/pdf" multiple hidden></div>
 <div class="sxv-docs"></div><div class="sxv-conv"></div>
 <div class="sxv-g3"><div><label>Fecha</label><input class="sxv-fecha" placeholder="DD/MM/AAAA" value="${p2(man.day)}/${p2(man.month)}/${man.year}"></div>
 <div><label>Inicio</label><input class="sxv-hi sxv-hora" value="${SX_HORA_INI}" maxlength="5" title="↑↓ o rueda del mouse: ±30 min"></div><div><label>Fin</label><input class="sxv-hf sxv-hora" value="${SX_HORA_FIN}" maxlength="5" title="↑↓ o rueda del mouse: ±30 min"></div></div>
@@ -894,6 +897,7 @@
       if (!docs.length) { box.innerHTML = ''; return; }
       const m = model, rows = [];
       docs.filter(d => d.error).forEach(d => rows.push(`<div class="sxv-bad">✗ ${esc(d.name)}: ${esc(d.error)}</div>`));
+      if (discarded.length) rows.push(`<div class="sxv-mut">Descartado${discarded.length > 1 ? 's' : ''} (no ${discarded.length > 1 ? 'son' : 'es'} de la operación): ${esc(discarded.join(', '))}</div>`);
       if (m) {
         m.peds.forEach(e => rows.push(`<div class="sxv-ok">✓ Ped. ${esc(e.ped)} · ${esc(e.tipoOp)} · ${esc(e.aduE)} · ${esc(e.rfc)}${e.rem.length ? ` · R${e.rem.map(r => r.n).join('-')} (${e.rem.length} COVE)` : ' · normal'}</div>`));
         const g = docs.filter(d => !d.error && d.kind === 'guia').length;
@@ -912,6 +916,7 @@
       const ks = Object.keys(m).sort((a, b) => (m[b].t || 0) - (m[a].t || 0)); ks.slice(300).forEach(k => delete m[k]);
       store.set('sx_rfcmem', JSON.stringify(m));
     }
+    let discarded = [];
     async function addFiles(list) {
       const files = [...list].filter(x => x && x.name);
       if (!files.length) return;
@@ -919,7 +924,7 @@
       for (const file of files) {
         const r = await sxReadFile(file);
         docs = docs.filter(d => d.name !== r.name);
-        docs.push(r);
+        if (r.discard) { if (!discarded.includes(r.name)) discarded.push(r.name); } else { discarded = discarded.filter(n => n !== r.name); docs.push(r); }
       }
       model = sxBuild(docs);
       descSug = model.desc;
@@ -967,9 +972,17 @@
     drop.onclick = () => inp.click();
     drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inp.click(); } };
     inp.onchange = () => { addFiles(inp.files); inp.value = ''; };
-    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('sxv-over'); });
-    drop.addEventListener('dragleave', () => drop.classList.remove('sxv-over'));
-    drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('sxv-over'); addFiles(e.dataTransfer.files); });
+    // 0.214: se pueden soltar archivos en cualquier parte de la página 1 (abre el panel y marca la zona); solo arrastres con archivos,
+    // y no sobre un campo de archivo del propio portal. Un solo juego de escuchas en document (sin duplicar el drop de la zona).
+    const sxHasFiles = e => { try { return Array.from((e.dataTransfer && e.dataTransfer.types) || []).includes('Files'); } catch (_) { return false; } };
+    const sxNativeInput = e => { const t = e.target; return !!(t && t.closest && t.closest('input[type=file]') && !pan.contains(t)); };
+    let sxDragN = 0;
+    const sxDragOff = () => { sxDragN = 0; drop.classList.remove('sxv-over'); };
+    document.addEventListener('dragenter', e => { if (!sxHasFiles(e)) return; sxDragN++; if (pan.style.display === 'none') setOpen(true); drop.classList.add('sxv-over'); });
+    document.addEventListener('dragover', e => { if (!sxHasFiles(e) || sxNativeInput(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+    document.addEventListener('dragleave', e => { if (sxHasFiles(e) && --sxDragN <= 0) sxDragOff(); });
+    document.addEventListener('drop', e => { if (!sxHasFiles(e)) return; sxDragOff(); if (sxNativeInput(e)) return; e.preventDefault(); addFiles(e.dataTransfer.files); });
+    document.addEventListener('dragend', sxDragOff);
 
     /* ---------- llenado con las funciones del portal ---------- */
     const log = (cls, msg) => { const d = el('div', { class: cls }); d.textContent = msg; q('.sxv-log').appendChild(d); return d; };
