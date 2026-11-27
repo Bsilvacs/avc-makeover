@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AVC MAKEOVER
 // @namespace    ben.avc.anam
-// @version      0.211
+// @version      0.213
 // @description  AVC MAKEOVER (y llenado de la página 1 de SERVEX en VUCEM): renueva el listado de AVC con columnas Pedimento/RFC/Razón social (vía el servicio web oficial de la ANAM, catálogo RFC local y rfc.claa.org.mx), detalle al hover (opcional, apagado) y botón de acuse PDF. Oculta las columnas TAG O GAFETE, CAAT/REPO y Documento y muestra la aduana como "47 (AICM)". La columna Folio muestra solo el consecutivo de 11 dígitos (p. ej. 00000000123); al pasar el mouse se ve el folio completo y con un clic se copia completo. La columna Tipo de operación muestra solo EXP (exportación), IMP (importación) o TRA (si el Documento dice tránsito). Colorea el fondo de la fila según el estatus (verde: Desaduanado / Desaduanamiento libre; rojo: Reconocimiento aduanero FD; amarillo: Aviso de cruce no presentado) y separa el listado en tres tablas según ese estatus, en este orden: Reconocimiento Aduanero (rojo), Cumplido (verde) y No presentado (amarillo); cada una muestra como máximo 4 renglones (el resto con scroll vertical) y se colapsa con un clic en su título; los demás estatus quedan en una tabla "Otros estatus". La casilla "Separar por estatus" (dentro de los filtros, activada por defecto) activa o desactiva esta vista: desactivada, vuelve una sola tabla con todos los resultados. El menú blanco de la izquierda se colapsa para dar más espacio a la tabla: queda el logo de ADUANAS arriba a la izquierda, alineado con la barra verde, y al pasar el mouse sobre él se despliegan las opciones (Consultar AVC, Aviso de cruces, E-documents) y los botones del script. La sección de filtros se puede colapsar y carga colapsada; su barra de título lista los filtros aplicados con el botón Filtrar (p. ej. "Aduana: 53 (CUN)"); trae una casilla "Ocultar AVC eliminados" (activada por defecto). El servicio web se configura pegando el token generado en CSAAIWIN (recomendado, no guarda tu contraseña) o, como alternativa, usuario/contraseña; avisa en el banner: amarillo si no hay servicio web configurado o el token vence en 7 días o menos; rojo si ya venció. Botón "Catálogos": panel con tres pestañas (RFC, TAGs y Gafetes): ver, editar, agregar y borrar razones sociales por RFC (se va llenando solo con las consultas a CLAA) y números de TAG y de gafete con su nombre; debajo muestra el número de versión del script. Precarga el folio y el captcha en /show/ y /search_avc/, y descarga el acuse si lo pediste desde la lista. El listado se actualiza solo (cada 15 s): AVC nuevos, cambios de estatus u otros datos de una fila y AVC que salen de la lista; la barra Filtros muestra la hora de la última actualización correcta y un banner avisa si el listado deja de actualizarse (sesión vencida o portal sin respuesta). Banner rojo arriba si el servicio web o el portal de la ANAM están en mantenimiento o fallan. Cada fila trae un botón de impresora que arma en local una vista imprimible del AVC con las placas del vehículo y un QR, con el mismo diseño del AVC del portal, a partir de los datos del servicio web oficial (no es el acuse del portal). Shift+D sobre una fila copia un diagnóstico. Modo táctil (celular o tableta, p. ej. Firefox para Android con Tampermonkey): se activa solo en pantallas táctiles; el menú del logo y el detalle de la fila se abren con un toque y el menú trae un botón "Diagnóstico de la fila". En escritorio todo funciona como siempre.; "Nuevo AVC desde archivos": arrastra los PDF/XML (pedimentos, remesas, cartas porte, facturas), se leen en local (pdf.js incrustado) y, tras revisarlo y confirmar, se envía el AVC al servicio web oficial
 // @updateURL    https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
 // @downloadURL  https://raw.githubusercontent.com/Bsilvacs/avc-makeover/main/avc-makeover.user.js
@@ -329,8 +329,10 @@
     const PJ = () => PW.jQuery || PW.$;
     const isServex = () => !!(document.getElementById('selectTipoServicio') && document.getElementById('aduanaDespacho') && document.getElementById('numeroPedimento'));
     // 0.206: página 1 (capturar), 2 (tipos de documento) o 3 (anexar); cualquier otra página de VUCEM: nada
+    // 0.212: página 4 = firma (form#firmadoId → registrarSolicitud.action con #cadenaOriginal): VUCEM ya aceptó los anexos, se borran los convertidos
+    const sxIsFirma = () => { const f = document.getElementById('firmadoId'); return !!(f && /registrarSolicitud\.action/.test(f.getAttribute('action') || '') && document.getElementById('cadenaOriginal')); };
     const sxPageNum = isServex() ? 1 : (document.getElementById('selectDoctosEspecificos') && document.getElementById('jqgridDoctosEspecificos')) ? 2
-      : (document.getElementById('docs') && document.forms.documentosRequeridos && document.getElementById('uploadDocumentos')) ? 3 : 0;
+      : (document.getElementById('docs') && document.forms.documentosRequeridos && document.getElementById('uploadDocumentos')) ? 3 : sxIsFirma() ? 4 : 0;
     if (!sxPageNum) return;
     const sxClean = s => String(s || '').replace(/\s+/g, ' ').trim();
     const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -569,7 +571,7 @@
       ];
     }
     // Guardado temporal entre páginas (VUCEM recarga y la página 2 borra localStorage): IndexedDB de VUCEM en este navegador.
-    // Se borra al poner los archivos en la página 3 o a las 24 h (SX_KEEP_MS). Resumen pequeño en el gestor (store 'sx_pend').
+    // Se borra al llegar a la firma (página 4), con "Borrar guardados", con una nueva conversión o a las 24 h (SX_KEEP_MS); no al ponerlos en la página 3. Resumen pequeño en el gestor (store 'sx_pend').
     const SX_KEEP_MS = 24 * 3600 * 1000;
     function sxDb() {
       return new Promise((res, rej) => {
@@ -780,10 +782,11 @@
       }
       const paises = [...new Set(guias.map(g => g.pais).filter(Boolean))];
       if (guias.some(g => !g.notext) && !paises.length) warn.push('no reconocí el país de destino de la guía: elígelo');
-      if (paises.length > 1) warn.push('las guías van a países distintos: elige el de procedencia');
+      // 0.213: guías a países distintos → procedencia = la de la primera guía (aviso, editable)
+      if (paises.length > 1) warn.push(`las guías van a países distintos: puse el de la primera guía (${paises[0]})`);
       return {
         peds: list, rfc: uniq('rfc')[0] || '', aduE: uniq('aduE')[0] || '', aduana: (list[0] || {}).aduana || '', tipoOp: uniq('tipoOp')[0] || '',
-        patente: (list[0] || {}).patente || '', desc: descs.join(', '), natures, pais: paises.length === 1 ? paises[0] : '', warn: [...new Set(warn)], err, bad: [...new Set(bad)], ncfdi: cfdis.length,
+        patente: (list[0] || {}).patente || '', desc: descs.join(', '), natures, pais: paises[0] || '', warn: [...new Set(warn)], err, bad: [...new Set(bad)], ncfdi: cfdis.length,
         scan: scan.length, nscan: scan.length && !descs.length, // nscan: ninguna guía legible → descripción y país de lo recordado por RFC
       };
     }
@@ -811,6 +814,7 @@
 #sxv-panel .sxv-ft{font-size:11px;color:#888;margin-top:6px}`;
     document.head.appendChild(css);
     const el = (tag, attrs, html) => { const e = document.createElement(tag); Object.entries(attrs || {}).forEach(([k, v]) => e.setAttribute(k, v)); if (html != null) e.innerHTML = html; return e; };
+    if (sxPageNum === 4) { if (store.get('sx_pend', '')) sxDropSet().catch(() => { /* ignore */ }); return; } // sin panel en la firma
     if (sxPageNum !== 1) { sxOtherPage(sxPageNum); return; }
     const btn = el('button', { id: 'sxv-btn', type: 'button', title: 'Llenar la página 1 con los PDF de la operación' }, 'SERVEX');
     const pan = el('div', { id: 'sxv-panel' });
